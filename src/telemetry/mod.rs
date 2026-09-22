@@ -14,6 +14,7 @@
 mod identity;
 mod schema;
 mod state;
+mod storage;
 
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
