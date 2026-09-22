@@ -205,9 +205,14 @@ errors, so malformed state can never expose the identity key in diagnostics.
 
 Storage acquisition also tightens a pre-existing telemetry directory and lock
 file to owner-only modes on Unix instead of relying only on their creation
-modes. Activating the replacement recorder must remove the legacy `record` and
-`roll_off` paths in the same change, so two schemas and retention policies
-never share the telemetry directory.
+modes. `storage/atomic.rs` writes a complete byte buffer through a
+same-directory temporary file before atomically replacing its destination; it
+does not fsync, and callers must finish serialization before replacement. Every
+telemetry-owned temporary uses the shared `.telemetry-tmp-` prefix so lazy
+cleanup and status recognize the same namespace. Activating the replacement
+recorder must remove the legacy `record` and `roll_off` paths in the same
+change, so two schemas and retention policies never share the telemetry
+directory.
 
 ### `report.rs` — structured report layer
 

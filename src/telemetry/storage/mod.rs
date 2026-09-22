@@ -7,5 +7,6 @@
     )
 )]
 
+mod atomic;
 mod lock;
 mod paths;
