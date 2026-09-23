@@ -173,7 +173,7 @@ Agent and package-manager payloads provide input to existing Symposium operation
 
 ### Identifiers and correlation boundaries
 
-When enabled recording first needs identity state, Symposium atomically creates a random 32-byte key in private `<config-dir>/telemetry-state.toml` (default `~/.symposium/telemetry-state.toml`). This file is separate from the inspectable `<config-dir>/telemetry/` data directory. Symposium creates and replaces it with owner-only permissions where the platform supports them.
+When enabled recording first needs identity state, Symposium atomically creates a random 32-byte key in private `<config-dir>/telemetry-state.toml` (default `~/.symposium/telemetry-state.toml`). This file is separate from the inspectable `<config-dir>/telemetry/` data directory. Symposium creates and replaces it with owner-only permissions where the platform supports them. If the state file is absent while daily files survive, the initial identifier-window anchor and latest-opened-day high-water mark use the later of the current UTC day and the newest canonical event or metric filename. Malformed or unsupported state is not treated as absent.
 
 Identifiers use the first 128 bits of HMAC-SHA-256 over a frozen domain, locally anchored 30-day window, and length-framed dimension fields. The [data contract](contract/recorded-data.md#derivation-format) fixes the byte construction, domain strings, prefixes, and field order.
 

@@ -223,7 +223,11 @@ state cannot be loaded or replaced outside the lock. Its `private_state.rs`
 child performs a bounded byte read, distinguishes TOML syntax errors, invalid
 state content, and unsupported versions without retaining parser source text,
 serializes the complete state before replacement, and requires mutable access
-to replace it.
+to replace it. Its `daily_files.rs` sibling recognizes only canonical event
+and metric filenames. When private state is absent, storage initializes the
+high-water mark and identifier-window anchor from the later of the current UTC
+day and the newest surviving daily filename; malformed and unsupported state
+remain errors rather than entering this path.
 
 ### `report.rs` — structured report layer
 

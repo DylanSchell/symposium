@@ -209,7 +209,8 @@ mod tests {
         const INVALID_STATE_SECRET: &str = "recognizable-invalid-private-key";
         let invalid_state = format!(
             "version = 1\n\n[identity]\nkey = \"{INVALID_STATE_SECRET}\"\n\
-             identifier-window-anchor = \"2026-08-03\"\n"
+             identifier-window-anchor = \"2026-08-03\"\n\
+             latest-opened-day = \"2026-08-03\"\n"
         );
         let Err(invalid_state_error) = decode(invalid_state.as_bytes()) else {
             panic!("accepted private state containing an invalid identity key");

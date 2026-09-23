@@ -11,7 +11,9 @@ use std::{
 use super::{
     LockedStorage,
     atomic::{self, AtomicReplaceError},
+    daily_files,
 };
+use crate::telemetry::schema::UtcDay;
 use crate::telemetry::state::{
     StateContentError, StateDecodeError, TelemetryStateV1, decode, encode,
 };
@@ -72,6 +74,44 @@ impl From<StateDecodeError> for LoadStateError {
     }
 }
 
+/// Failure to load existing state or initialize its first identity epoch.
+#[derive(Debug)]
+pub(in crate::telemetry) enum OpenStateError {
+    Load(LoadStateError),
+    InspectDailyFiles(io::Error),
+    GenerateIdentityKey(getrandom::Error),
+}
+
+impl fmt::Display for OpenStateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Load(_) => formatter.write_str("failed to load existing telemetry private state"),
+            Self::InspectDailyFiles(_) => {
+                formatter.write_str("failed to inspect existing telemetry day files")
+            }
+            Self::GenerateIdentityKey(_) => {
+                formatter.write_str("failed to generate a telemetry identity key")
+            }
+        }
+    }
+}
+
+impl Error for OpenStateError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Load(error) => Some(error),
+            Self::InspectDailyFiles(error) => Some(error),
+            Self::GenerateIdentityKey(error) => Some(error),
+        }
+    }
+}
+
+impl From<LoadStateError> for OpenStateError {
+    fn from(error: LoadStateError) -> Self {
+        Self::Load(error)
+    }
+}
+
 /// Failure to serialize or atomically replace private telemetry state.
 #[derive(Debug)]
 pub(in crate::telemetry) enum ReplaceStateError {
@@ -116,6 +156,33 @@ impl LockedStorage {
         decode(&bytes).map(Some).map_err(Into::into)
     }
 
+    /// Load private state, or initialize it at the newest day that may exist.
+    ///
+    /// Missing state is initialized in memory so the recorder can apply its
+    /// complete operation and persist once. Existing malformed or unsupported
+    /// state is never replaced here. A surviving daily file dated after
+    /// `current_day` intentionally initializes a future high-water mark, so
+    /// recording remains paused until the clock catches up.
+    ///
+    /// # Errors
+    ///
+    /// Returns a load error for existing state, an inspection error when the
+    /// newest surviving daily file cannot be determined, or a key-generation
+    /// error for first use.
+    pub(in crate::telemetry) fn load_or_initialize_state(
+        &self,
+        current_day: UtcDay,
+    ) -> Result<TelemetryStateV1, OpenStateError> {
+        if let Some(state) = self.load_state()? {
+            return Ok(state);
+        }
+
+        let initial_day = daily_files::newest_day(self.paths.telemetry_dir())
+            .map_err(OpenStateError::InspectDailyFiles)?
+            .map_or(current_day, |newest| current_day.max(newest));
+        TelemetryStateV1::new(initial_day).map_err(OpenStateError::GenerateIdentityKey)
+    }
+
     /// Serialize completely, then atomically replace private state.
     ///
     /// Mutable access keeps two replacements from overlapping under one held
@@ -157,14 +224,24 @@ fn read_bounded(path: &Path) -> Result<Option<Vec<u8>>, LoadStateError> {
 mod tests {
     use std::{error::Error as _, fs};
 
-    use super::{LoadStateError, MAX_PRIVATE_STATE_BYTES};
+    use chrono::{NaiveDate, TimeZone as _, Utc};
+
+    use super::{LoadStateError, MAX_PRIVATE_STATE_BYTES, OpenStateError};
     use crate::telemetry::{
-        state::{IDENTIFIER_WINDOW_TEST_STATE, StateContentError, TelemetryStateV1},
+        schema::{UtcDay, UtcSecond},
+        state::{
+            IDENTIFIER_WINDOW_TEST_STATE, RecordingObservationError, StateContentError,
+            TelemetryStateV1, encode,
+        },
         storage::LockedStorage,
     };
 
     fn storage(temporary: &tempfile::TempDir) -> LockedStorage {
         LockedStorage::try_acquire(temporary.path()).unwrap()
+    }
+
+    fn day(year: i32, month: u32, day: u32) -> UtcDay {
+        UtcDay::from_date(NaiveDate::from_ymd_opt(year, month, day).unwrap())
     }
 
     fn assert_diagnostic_redacts(error: &LoadStateError, sensitive: &str) {
@@ -182,6 +259,128 @@ mod tests {
 
         assert!(state.is_none());
         assert!(!storage.paths.state_file().exists());
+    }
+
+    #[test]
+    fn first_state_uses_the_current_day_when_surviving_files_are_older() {
+        let temporary = tempfile::tempdir().unwrap();
+        let storage = storage(&temporary);
+        let current_day = day(2026, 9, 23);
+        fs::write(
+            storage
+                .paths
+                .telemetry_dir()
+                .join("events-2026-08-03.jsonl"),
+            [],
+        )
+        .unwrap();
+
+        let state = storage.load_or_initialize_state(current_day).unwrap();
+        let encoded = encode(&state).unwrap();
+
+        assert_eq!(state.latest_opened_day(), current_day);
+        assert!(encoded.contains("identifier-window-anchor = \"2026-09-23\""));
+        assert!(encoded.contains("latest-opened-day = \"2026-09-23\""));
+        assert!(!storage.paths.state_file().exists());
+    }
+
+    #[test]
+    fn first_state_does_not_reopen_a_future_dated_daily_file() {
+        let temporary = tempfile::tempdir().unwrap();
+        let storage = storage(&temporary);
+        fs::write(
+            storage
+                .paths
+                .telemetry_dir()
+                .join("events-2026-10-04.jsonl"),
+            [],
+        )
+        .unwrap();
+        fs::write(
+            storage
+                .paths
+                .telemetry_dir()
+                .join("metrics-2026-10-07.jsonl"),
+            [],
+        )
+        .unwrap();
+
+        let state = storage.load_or_initialize_state(day(2026, 9, 23)).unwrap();
+        let encoded = encode(&state).unwrap();
+
+        assert_eq!(state.latest_opened_day(), day(2026, 10, 7));
+        assert!(encoded.contains("identifier-window-anchor = \"2026-10-07\""));
+        assert!(encoded.contains("latest-opened-day = \"2026-10-07\""));
+    }
+
+    #[test]
+    fn future_dated_recovery_pauses_recording_until_the_clock_catches_up() {
+        let temporary = tempfile::tempdir().unwrap();
+        let storage = storage(&temporary);
+        fs::write(
+            storage
+                .paths
+                .telemetry_dir()
+                .join("events-2026-10-07.jsonl"),
+            [],
+        )
+        .unwrap();
+        let mut state = storage.load_or_initialize_state(day(2026, 9, 23)).unwrap();
+        let completed_at =
+            UtcSecond::from_datetime(Utc.with_ymd_and_hms(2026, 9, 23, 12, 0, 0).unwrap());
+
+        let result = state.observe_recording(completed_at);
+
+        assert!(matches!(
+            result,
+            Err(RecordingObservationError::BeforeHighWater { .. })
+        ));
+        assert_eq!(state.latest_opened_day(), day(2026, 10, 7));
+    }
+
+    #[test]
+    fn existing_unsupported_state_is_not_reinitialized() {
+        let temporary = tempfile::tempdir().unwrap();
+        let storage = storage(&temporary);
+        let source = b"version = 2\nfuture-field = true\n";
+        fs::write(storage.paths.state_file(), source).unwrap();
+
+        let Err(error) = storage.load_or_initialize_state(day(2026, 9, 23)) else {
+            panic!("reinitialized private state with an unsupported version");
+        };
+
+        assert!(matches!(
+            error,
+            OpenStateError::Load(LoadStateError::UnsupportedVersion(2))
+        ));
+        assert_eq!(fs::read(storage.paths.state_file()).unwrap(), source);
+    }
+
+    #[test]
+    fn existing_malformed_state_is_not_reinitialized() {
+        let temporary = tempfile::tempdir().unwrap();
+        let storage = storage(&temporary);
+        let source = concat!(
+            "version = 1\n\n",
+            "[identity]\n",
+            "key = \"not-a-key\"\n",
+            "identifier-window-anchor = \"2026-08-03\"\n",
+            "latest-opened-day = \"2026-08-03\"\n",
+        )
+        .as_bytes();
+        fs::write(storage.paths.state_file(), source).unwrap();
+
+        let Err(error) = storage.load_or_initialize_state(day(2026, 9, 23)) else {
+            panic!("reinitialized malformed private state");
+        };
+
+        assert!(matches!(
+            error,
+            OpenStateError::Load(LoadStateError::Content(
+                StateContentError::InvalidState { .. }
+            ))
+        ));
+        assert_eq!(fs::read(storage.paths.state_file()).unwrap(), source);
     }
 
     #[test]
@@ -230,7 +429,8 @@ mod tests {
         let storage = storage(&temporary);
         let source = format!(
             "version = 1\n\n[identity]\nkey = \"{RECOGNIZABLE_INVALID_KEY}\"\n\
-             identifier-window-anchor = \"2026-08-03\"\n"
+             identifier-window-anchor = \"2026-08-03\"\n\
+             latest-opened-day = \"2026-08-03\"\n"
         );
         fs::write(storage.paths.state_file(), source).unwrap();
 

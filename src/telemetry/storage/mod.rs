@@ -8,6 +8,7 @@
 )]
 
 mod atomic;
+mod daily_files;
 mod lock;
 mod paths;
 mod private_state;
