@@ -19,7 +19,7 @@ pub(super) struct TelemetryLock {
 
 /// Failure to prepare or acquire the telemetry lock.
 #[derive(Debug)]
-pub(super) enum LockError {
+pub(in crate::telemetry) enum LockError {
     /// Another handle, in this process or another, currently owns the lock.
     Contended,
     /// The filesystem operation failed for a reason other than contention.

@@ -11,7 +11,7 @@ use crate::telemetry::TEMPORARY_FILE_PREFIX;
 
 /// Failure while preparing or committing an atomic file replacement.
 #[derive(Debug)]
-pub(super) enum AtomicReplaceError {
+pub(in crate::telemetry) enum AtomicReplaceError {
     Create(io::Error),
     Write(io::Error),
     Persist(io::Error),

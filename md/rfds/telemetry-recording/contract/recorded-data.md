@@ -462,6 +462,8 @@ The sibling private `<config-dir>/telemetry-state.toml` holds the identity key, 
 
 Symposium creates and replaces it atomically with owner-only permissions where supported. Replacement uses a same-directory temporary file beside `config.toml`; abandoned state temporaries are ignored and cleaned lazily under the telemetry lock.
 
+A recorder reads at most 16 MiB of private state. Invalid UTF-8, invalid TOML, TOML that violates the state schema, and an oversized file are malformed state; diagnostics retain at most the error location and never the source line or parser error that could contain the identity key. A syntactically valid unsupported state version stops recording but is reported separately from malformed state, so an older binary does not treat newer state as safe to replace.
+
 The session sets are not printed or copied into metric rows. Symposium discards each plugin-hook or extension-invocation entry, including its row identifier, session sets, and contribution counts, at UTC-day rollover and removes it when `telemetry clear` or `telemetry reset-identifiers` runs. `clear` also deletes the row the entry identifies; reset removes entries whose keys belong to the previous identifier epoch. State is replaced before the corresponding metric snapshot. If a later snapshot write fails, a contribution-count mismatch on the next update discards the sets and permanently marks the row's session counts incomplete for that day.
 
 Loading private state with an existing metric snapshot reconciles the two before selecting an aggregate. Symposium rebuilds each daily public-row allowance from every surviving public row for that family and day, including rows from earlier identifier epochs, and saturates the count at 128.

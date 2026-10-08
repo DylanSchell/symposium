@@ -201,7 +201,7 @@ The key is private state, not anonymized telemetry. Someone who has it can recom
 
 The return subject is the sole cross-agent exception: it deduplicates Q1 but cannot link to other event kinds. A cohort remains stable through D30; the next observed session starts a new cohort. Accepting new consent or resetting identifiers rotates the key, resets the identifier-window anchor without moving it behind the latest-opened-day high-water mark, and clears the return-cohort anchor. The next observed session becomes D0 of another cohort.
 
-`session_id` is absent when the agent supplies none, including Copilot. Raw vendor ids never enter events or an unkeyed hash. There is no global installation/workspace id, and future analysis or upload must not reconstruct one. Missing identity state is created only when enabled; malformed existing state stops recording until explicit identifier reset.
+`session_id` is absent when the agent supplies none, including Copilot. Raw vendor ids never enter events or an unkeyed hash. There is no global installation/workspace id, and future analysis or upload must not reconstruct one. Missing identity state is created only when enabled; malformed existing state stops recording until explicit identifier reset. A syntactically valid unsupported state version is reported separately and is not replaced by an older binary.
 
 ### Public package and extension identity
 
@@ -339,7 +339,7 @@ Aggregate counters are lower bounds. No durable counter can quantify observation
 
 The event file, aggregate snapshot, and reserved maximum-size `storage_limit` row share 8 MiB per day. This is a safety ceiling, not expected volume or preallocation. It bounds damage from a producer bug or unexpectedly large resolution batch; normal recording should remain well below it.
 
-Together with D31 expiry, the daily allowance bounds ordinary retained telemetry near 248 MiB, excluding temporary files and private state. Aggregate metrics receive at most 512 KiB. An oversized metric update is dropped without stopping low-volume events. An ordinary batch that cannot fit is replaced by the daily marker, and ordinary recording stops for that day. Relationship batches are never split.
+Together with D31 expiry, the daily allowance bounds ordinary retained telemetry near 248 MiB, excluding temporary files and private state. Aggregate metrics receive at most 512 KiB. An oversized metric update is dropped without stopping low-volume events. An ordinary batch that cannot fit is replaced by the daily marker, and ordinary recording stops for that day. Relationship batches are never split. Private-state reads have a separate 16 MiB safety ceiling.
 
 Files survive D30 and become eligible for lazy deletion when `current_day - file_day > 30`, first on D31. `clear` deletes event and metric files plus pending count sets, but preserves consent, identity/cohort state, and the latest-opened-day high-water mark. `reset-identifiers` rotates future identifiers without rewriting old files or moving the high-water mark backward.
 

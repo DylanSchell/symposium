@@ -32,6 +32,7 @@ fn set_len<T>(sessions: &BTreeSet<T>) -> u64 {
     u64::try_from(sessions.len()).expect("BUG: usize must fit in u64 on supported targets")
 }
 
+pub(in crate::telemetry) use codec::{StateContentError, StateDecodeError, decode, encode};
 pub(in crate::telemetry) use extension_invocation::{
     ExtensionSessionCountBaseline, ExtensionSessionCountSnapshot, ExtensionSessionCountUpdateError,
     SelectedExtensionInvocationAggregate,

@@ -166,7 +166,7 @@ Telemetry identifiers reset. Existing telemetry data files were not changed.
 
 The command neither deletes nor rewrites old event or aggregate-metric rows. Identifiers before and after the reset cannot be derived into each other from the data files.
 
-If no identity state exists, the command reports that there is nothing to reset instead of creating a key. If existing state is unreadable or malformed, recording remains stopped until this command explicitly replaces it.
+If no identity state exists, the command reports that there is nothing to reset instead of creating a key. If existing state is unreadable or malformed, recording remains stopped until this command explicitly replaces it. If the file has a syntactically valid unsupported version, the command refuses to replace it and reports that a binary supporting that version must manage it.
 
 ## Files and private state
 
