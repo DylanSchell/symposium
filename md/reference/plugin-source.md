@@ -1,6 +1,6 @@
 # Plugin sources
 
-A **plugin source**, configured as a [`[[registry]]`](./configuration.md#registry) entry and called a *registry* in the rest of these docs, is a directory or git repository containing plugins and standalone skills that Symposium discovers automatically. Registries can be local directories or remote Git repositories, and Symposium searches them recursively to find all available extensions.
+A **plugin source**, configured as a [`[[registry]]`](./configuration.md#registry) entry and called a *registry* in the rest of these docs, is a local directory or a GitHub repository containing plugins and standalone skills that Symposium discovers automatically. Symposium searches it recursively to find all available extensions.
 
 ## Discovery rules
 
@@ -33,7 +33,7 @@ plugin-source/
 
 ## Configuration
 
-Registries are configured in your `config.toml` file. See the [Configuration reference](./configuration.md) for details on setting up local directories, Git repositories, and built-in sources.
+Registries are configured in your `config.toml` file. See the [Configuration reference](./configuration.md) for details on setting up local directories, GitHub repositories, and built-in sources.
 
 ## Validation
 

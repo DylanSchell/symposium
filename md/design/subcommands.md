@@ -40,7 +40,7 @@ command = "example-tool"
 | `command` | string or table | yes | A string names an `[[installations]]` entry; a table is an inline installation, promoted to a synthetic entry named after the subcommand. Same shape as `[[hooks]].command`. |
 | `depends-on` | string or array | no | Subcommand-level dependency predicate, AND-combined with the plugin-level `depends-on`. |
 
-Reserved names that cannot be used as subcommand keys: `init`, `sync`, `hook`, `plugin`, `crate-info`, `help`. A plugin cannot shadow a built-in.
+Reserved names that cannot be used as subcommand keys: every built-in command (`init`, `sync`, `search`, `use`, `status`, `hook`, `plugin`, `self-update`, `crate-info`, `telemetry`) and `help`. A plugin cannot shadow a built-in.
 
 The TOML key is singular (`[subcommand.<name>]`), matching the natural read of a TOML table. The internal field on `PluginManifest` is plural (`subcommands`).
 

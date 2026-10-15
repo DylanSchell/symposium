@@ -84,7 +84,7 @@ A skill group must have exactly one of `source.path` or `source.git`. A crate is
 
 ## Chained plugins
 
-A `[[plugins]]` entry names *another* plugin that loads whenever this plugin is active (the "a package is a plugin" edge). Today the referenced plugin is a **crate**, which always loads as a first-class plugin built from its manifest sources (see [Crate-embedded manifest](#crate-embedded-manifest) below). A recommendations entry uses it to load a crate's own plugin without asking the user first; see [Supporting your crate](../crate-authors/supporting-your-crate.md).
+A `[[plugins]]` entry names *another* plugin that loads whenever this plugin is active (the "a package is a plugin" edge). Today the referenced plugin is a **crate**, which always loads as a first-class plugin built from its manifest sources (see [Crate-embedded manifest](#crate-embedded-manifest) below). The referenced crate loads without a consent step of its own: the plugin that names it vouches for it (see [Configuration](./configuration.md#plugins)).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -495,7 +495,7 @@ Exit 0 means the predicate passes; non-zero means it fails.
 
 The argument is trimmed of leading/trailing whitespace before being passed. An empty argument — `battery_pack()` or `battery_pack( )` — does not append anything to the command (only the static `args` are passed).
 
-A custom predicate is a **boolean gate only**: it passes iff the command exits 0. Its stdout does not affect the result; it may carry watch events that control [caching](#caching).
+A custom predicate is a **boolean gate only**: it passes if the command exits 0. Its stdout does not affect the result; it may carry watch events that control [caching](#caching).
 
 ### Collisions
 
@@ -615,7 +615,7 @@ Servers are registered at the scope chosen by the `hook-scope` setting (see [Con
 
 ## `[subcommand.<name>]`
 
-A `[subcommand.<name>]` table adds a command that users and agents run as `cargo agents <name>`. Symposium resolves `command` through the same [installation](#installations) pipeline hooks use, runs it with the installation's `args` followed by the arguments typed after `<name>`, passes its output through, and exits with its exit code. The command owns its own arguments, validation, and `--help`.
+A `[subcommand.<name>]` table adds a command that users and agents run as `cargo agents <name>`. By convention, `<name>` is the crate's name, so an agent can run `cargo agents <crate> --help` to discover the crate's own CLI. Symposium resolves `command` through the same [installation](#installations) pipeline hooks use, runs it with the installation's `args` followed by the arguments typed after `<name>`, passes its output through, and exits with its exit code. The command owns its own arguments, validation, and `--help`.
 
 ```toml
 # A recommendations entry; in a crate's own Symposium.toml, leave out name and depends-on.
@@ -623,16 +623,16 @@ name = "widgetlib"
 depends-on = ["widgetlib"]
 
 [[installations]]
-name = "widget-tool"
+name = "widgetlib-cli"
 source = "cargo"
-crate = "widget-tool"
-executable = "widget-tool"
-args = ["check"]
+crate = "widgetlib-cli"
+executable = "widgetlib-cli"
 
-# `cargo agents widget-check --strict` runs `widget-tool check --strict`
-[subcommand.widget-check]
-description = "Check the widget definitions in this workspace"
-command = "widget-tool"
+# `cargo agents widgetlib check --strict` runs `widgetlib-cli check --strict`
+[subcommand.widgetlib]
+description = "Check and inspect the widget definitions in this workspace"
+audience = "agents"
+command = "widgetlib-cli"
 ```
 
 | Field | Type | Required | Description |
@@ -682,4 +682,4 @@ env = []
 cargo agents plugin validate path/to/Symposium.toml
 ```
 
-This parses the manifest and reports any errors. The file must be named `Symposium.toml` (in capitals) for Symposium to discover it; to validate every entry in a registry directory, pass the directory instead (see [Plugin sources](./plugin-source.md#validation)). Crate name checking against crates.io is on by default; use `--no-check-crates` to skip it.
+This parses the manifest and reports any errors. The file must be named `Symposium.toml` for Symposium to discover it; to validate every entry in a registry directory, pass the directory instead (see [Plugin sources](./plugin-source.md#validation)). Crate name checking against crates.io is on by default; use `--no-check-crates` to skip it.
