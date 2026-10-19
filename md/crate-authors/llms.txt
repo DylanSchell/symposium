@@ -7,7 +7,7 @@ Symposium (the `cargo agents` CLI, https://symposium.dev) gives AI coding agents
 - skills: `SKILL.md` guidance documents, installed into each agent's skills directory;
 - hooks: programs that run on agent events (before or after a tool call, when the user submits a prompt, when a session starts, when the agent finishes its turn);
 - MCP servers: registered into each agent's MCP configuration;
-- subcommands: the crate's own command-line tool, which agents and users run as `cargo agents <crate> ...`.
+- subcommands: the crate's own command-line tool, which agents and users run as `cargo agents <crate> <command>`.
 
 Read the whole file. If your tool gave you a summary instead of the text (web-fetch tools often do), download it with `curl -fsSL https://symposium.dev/crate-authors/llms.txt`. Examples use the crate `widgetlib`; substitute your crate's name.
 
@@ -233,13 +233,13 @@ executable = "widgetlib-cli"
 # `cargo agents widgetlib check --strict` runs `widgetlib-cli check --strict`.
 [subcommand.widgetlib]
 description = "Inspect and check widgetlib widget definitions"
-command = "widgetlib-cli"
+command = "widgetlib-cli" # the [[installations]] entry that provides the tool
 ```
 
 - The tool is a crate with a binary that you publish, here `widgetlib-cli`. `crate` names the crates.io crate Symposium installs it from, so it must be yours, published before the crate whose plugin uses it. To try the subcommand before then, point the installation at your local build (part 4).
 - `description` is required (at most 1024 bytes) and is shown in `cargo agents --help`, which Symposium's session-start hook tells agents to run when a project has subcommands.
 - `audience` is `"agents"` (default) or `"humans"`. It only picks the `--help` section, but the session-start hint tells agents to use only the commands listed for agents unless the user asks.
-- The name may contain ASCII letters, digits, `-`, and `_`, and must not be a built-in command (`init`, `sync`, `search`, `use`, `status`, `hook`, `plugin`, `self-update`, `crate-info`, `telemetry`, `help`). If two active plugins define the same name, running it fails.
+- The name may contain ASCII letters, digits, `-`, and `_`, and must not be the name of a built-in command (the reference lists them). If two active plugins define the same name, running it fails.
 
 Reference: https://symposium.dev/reference/plugin-definition.html#subcommandname
 
