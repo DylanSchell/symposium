@@ -23,7 +23,9 @@ See the [plugin definition reference](../reference/plugin-definition.md) for the
 
 ### Will users get every crate from all their dependencies by default?
 
-Depending on a crate means compiling its code, not letting its author inject context into the user's agent. So a plugin embedded in a dependency stays off until the user enables it: an interactive [`cargo agents sync`](../reference/cargo-agents-sync.md#consent-prompt) asks about each one, and [`cargo agents use`](../reference/cargo-agents-use.md) enables one by name. Plugins in the [recommendations repository][rr] are reviewed before they are merged, so they load without that step, and a plugin that proves problematic can be removed centrally.
+No, the default is that Symposium makes users away when there are suggested plugin for their workspace, but users must explicitly run `cargo agents sync` and then agree for those plugins to be enabled. However, once a plugin has been enabled in one workspace, it will automatically be enabled in other workspaces.
+
+NB: Plugins in the [recommendations repository][rr] are reviewed before they are merged so they do not require explicit confirmation.
 
 ## Step 2. Add skills, hooks, and/or MCP servers
 
