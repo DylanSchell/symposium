@@ -309,6 +309,36 @@ async fn sync_skips_invalid_skill_frontmatter() {
     .unwrap();
 }
 
+#[tokio::test]
+async fn sync_continues_when_an_agents_hooks_cannot_be_registered() {
+    with_fixture(
+        TestMode::SimulationOnly,
+        &["plugins0", "workspace0"],
+        async |mut ctx| {
+            ctx.symposium(&["init", "--hook-scope", "global", "--add-agent", "claude"])
+                .await?;
+            let settings = ctx.sym.home_dir().join(".claude/settings.json");
+            std::fs::write(&settings, "[]")?;
+
+            let events = ctx.sync_with_report(tracing::Level::INFO).await?;
+
+            assert!(
+                events.iter().any(|e| e
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .is_some_and(|m| m.contains("failed to register hooks for claude"))),
+                "{events:?}"
+            );
+            let workspace_root = ctx.workspace_root.as_ref().unwrap();
+            find_installed_skill(&workspace_root.join(".claude/skills"), "serde-guidance");
+            assert_eq!(std::fs::read_to_string(&settings)?, "[]");
+            Ok(())
+        },
+    )
+    .await
+    .unwrap();
+}
+
 /// `sync` removes stale skills marked by a `.symposium` file.
 #[tokio::test]
 async fn sync_removes_stale_skills() {

@@ -469,13 +469,18 @@ pub async fn sync(sym: &Symposium, deps: &Arc<WorkspaceDeps>, update: UpdateLeve
         // `~/.gemini/config/hooks.json`, and Copilot `.github/hooks/` but
         // `~/.copilot/settings.json` - so project scope cannot be produced by
         // rooting the global path at the workspace.
-        match sym.config.hook_scope {
-            crate::config::HookScope::Global => agent
-                .register_hooks(sym.home_dir(), sym, out)
-                .context("failed to register hooks")?,
-            crate::config::HookScope::Project => agent
-                .register_project_hooks(&project_root, sym, out)
-                .context("failed to register hooks")?,
+        let hooks = match sym.config.hook_scope {
+            crate::config::HookScope::Global => agent.register_hooks(sym.home_dir(), sym, out),
+            crate::config::HookScope::Project => {
+                agent.register_project_hooks(&project_root, sym, out)
+            }
+        };
+        if let Err(e) = hooks {
+            tracing::info!(
+                report = %crate::report::ReportEvent::Warning {
+                    message: format!("failed to register hooks for {agent_name}: {e:#}"),
+                },
+            );
         }
 
         // MCP does not follow the hook scope: an agent's MCP file differs from
@@ -499,9 +504,14 @@ pub async fn sync(sym: &Symposium, deps: &Arc<WorkspaceDeps>, update: UpdateLeve
                 },
             );
         }
-        agent
-            .register_mcp_servers(mcp_scope, &project_root, sym, &mcp_servers, out)
-            .context("failed to register MCP servers")?;
+        if let Err(e) = agent.register_mcp_servers(mcp_scope, &project_root, sym, &mcp_servers, out)
+        {
+            tracing::info!(
+                report = %crate::report::ReportEvent::Warning {
+                    message: format!("failed to register MCP servers for {agent_name}: {e:#}"),
+                },
+            );
+        }
 
         for (skill_name, origin_hash, skill_source) in &to_install {
             // `skill_source` is the path to the SKILL.md file; the skill

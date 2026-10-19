@@ -9,7 +9,7 @@ mod mcp_server_registration;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde_json::json;
 
 use crate::config::Symposium;
@@ -412,14 +412,7 @@ fn claude_config_dir(sym: &Symposium) -> PathBuf {
 fn register_claude_hooks(settings_path: &Path, out: &Output) -> Result<()> {
     let mut settings = load_json_or_empty(settings_path)?;
     let display = display_path(settings_path);
-
-    let hooks = settings
-        .as_object_mut()
-        .unwrap()
-        .entry("hooks")
-        .or_insert_with(|| json!({}));
-
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let hooks_obj = hooks_object(&mut settings, &display)?;
 
     let mut added = Vec::new();
 
@@ -431,7 +424,7 @@ fn register_claude_hooks(settings_path: &Path, out: &Output) -> Result<()> {
         "Stop",
     ] {
         let command = format!("cargo-agents hook claude {}", event_to_cli_arg(event));
-        if ensure_claude_hook_entry(hooks_obj, event, &command) {
+        if ensure_claude_hook_entry(event_hooks(hooks_obj, event, &display)?, &command) {
             added.push(event);
         }
     }
@@ -447,18 +440,7 @@ fn register_claude_hooks(settings_path: &Path, out: &Output) -> Result<()> {
 }
 
 /// Returns `true` if a new entry was added, `false` if already registered.
-fn ensure_claude_hook_entry(
-    hooks: &mut serde_json::Map<String, serde_json::Value>,
-    event: &str,
-    command: &str,
-) -> bool {
-    let event_hooks = hooks.entry(event).or_insert_with(|| json!([]));
-
-    let arr = match event_hooks.as_array_mut() {
-        Some(a) => a,
-        None => return false,
-    };
-
+fn ensure_claude_hook_entry(arr: &mut Vec<serde_json::Value>, command: &str) -> bool {
     let already_registered = arr.iter().any(|group| {
         group
             .get("hooks")
@@ -498,14 +480,7 @@ fn codex_dir(sym: &Symposium) -> PathBuf {
 fn register_codex_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
     let mut settings = load_json_or_empty(hooks_path)?;
     let display = display_path(hooks_path);
-
-    let hooks = settings
-        .as_object_mut()
-        .unwrap()
-        .entry("hooks")
-        .or_insert_with(|| json!({}));
-
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let hooks_obj = hooks_object(&mut settings, &display)?;
 
     let mut added = Vec::new();
 
@@ -516,7 +491,7 @@ fn register_codex_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
         "SessionStart",
     ] {
         let command = format!("cargo-agents hook codex {}", event_to_cli_arg(event));
-        if ensure_codex_hook_entry(hooks_obj, event, &command) {
+        if ensure_codex_hook_entry(event_hooks(hooks_obj, event, &display)?, &command) {
             added.push(event);
         }
     }
@@ -532,18 +507,7 @@ fn register_codex_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
 }
 
 /// Returns `true` if a new entry was added, `false` if already registered.
-fn ensure_codex_hook_entry(
-    hooks: &mut serde_json::Map<String, serde_json::Value>,
-    event: &str,
-    command: &str,
-) -> bool {
-    let event_hooks = hooks.entry(event).or_insert_with(|| json!([]));
-
-    let arr = match event_hooks.as_array_mut() {
-        Some(a) => a,
-        None => return false,
-    };
-
+fn ensure_codex_hook_entry(arr: &mut Vec<serde_json::Value>, command: &str) -> bool {
     let already_registered = arr.iter().any(|group| {
         group
             .get("hooks")
@@ -589,14 +553,7 @@ fn copilot_config_dir(sym: &Symposium) -> PathBuf {
 fn register_copilot_hooks_global(config_path: &Path, out: &Output) -> Result<()> {
     let display = display_path(config_path);
     let mut config = load_json_or_empty(config_path)?;
-
-    let hooks = config
-        .as_object_mut()
-        .unwrap()
-        .entry("hooks")
-        .or_insert_with(|| json!({}));
-
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let hooks_obj = hooks_object(&mut config, &display)?;
 
     // Check if already registered
     let already = hooks_obj.values().any(|arr| {
@@ -616,10 +573,7 @@ fn register_copilot_hooks_global(config_path: &Path, out: &Output) -> Result<()>
 
     let copilot_hooks = copilot_hook_entries();
     for (event, entry) in copilot_hooks {
-        let arr = hooks_obj.entry(event).or_insert_with(|| json!([]));
-        if let Some(a) = arr.as_array_mut() {
-            a.push(entry);
-        }
+        event_hooks(hooks_obj, event, &display)?.push(entry);
     }
 
     save_json(config_path, &config)?;
@@ -748,7 +702,9 @@ fn register_antigravity_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
     }
     let entry = serde_json::Value::Object(entry);
 
-    let obj = config.as_object_mut().unwrap();
+    let obj = config
+        .as_object_mut()
+        .with_context(|| format!("{display} is not a JSON object"))?;
     if obj.get(ANTIGRAVITY_HOOK_NAME) == Some(&entry) {
         out.already_ok(format!("{display}: hooks already registered"));
         return Ok(());
@@ -790,8 +746,11 @@ fn unregister_antigravity_hooks(hooks_path: &Path, out: &Output) {
 fn merge_kiro_hooks(
     config: &mut serde_json::Value,
     default_name: &str,
-) -> (bool, Vec<&'static str>) {
-    let obj = config.as_object_mut().unwrap();
+    display: &str,
+) -> Result<(bool, Vec<&'static str>)> {
+    let obj = config
+        .as_object_mut()
+        .with_context(|| format!("{display} is not a JSON object"))?;
     let mut changed = false;
 
     // Use a helper to track insertions.
@@ -815,16 +774,18 @@ fn merge_kiro_hooks(
         json!({})
     });
 
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let hooks_obj = hooks
+        .as_object_mut()
+        .with_context(|| format!("`hooks` in {display} is not a JSON object"))?;
 
     let mut added = Vec::new();
     for (event, entry) in kiro_hook_entries() {
-        if ensure_kiro_hook_entry(hooks_obj, event, &entry) {
+        if ensure_kiro_hook_entry(event_hooks(hooks_obj, event, display)?, &entry) {
             added.push(event);
             changed = true;
         }
     }
-    (changed, added)
+    Ok((changed, added))
 }
 
 /// Register hooks by creating a Kiro agent file (`.kiro/agents/symposium.json`).
@@ -834,7 +795,7 @@ fn register_kiro_hooks(agents_dir: &Path, out: &Output) -> Result<()> {
     let display = display_path(&hook_file);
 
     let mut config = load_json_or_empty(&hook_file)?;
-    let (changed, added) = merge_kiro_hooks(&mut config, "symposium");
+    let (changed, added) = merge_kiro_hooks(&mut config, "symposium", &display)?;
 
     if !changed {
         out.already_ok(format!("{display}: hooks already registered"));
@@ -851,18 +812,7 @@ fn register_kiro_hooks(agents_dir: &Path, out: &Output) -> Result<()> {
 }
 
 /// Returns `true` if a new entry was added, `false` if already registered.
-fn ensure_kiro_hook_entry(
-    hooks: &mut serde_json::Map<String, serde_json::Value>,
-    event: &str,
-    entry: &serde_json::Value,
-) -> bool {
-    let event_hooks = hooks.entry(event).or_insert_with(|| json!([]));
-
-    let arr = match event_hooks.as_array_mut() {
-        Some(a) => a,
-        None => return false,
-    };
-
+fn ensure_kiro_hook_entry(arr: &mut Vec<serde_json::Value>, entry: &serde_json::Value) -> bool {
     // Kiro uses a flat structure: each entry has `command` directly (no nested `hooks` array)
     let already_registered = arr.iter().any(|e| {
         e.get("command")
@@ -1046,10 +996,35 @@ fn load_json_or_empty(path: &Path) -> Result<serde_json::Value> {
         if contents.trim().is_empty() {
             return Ok(json!({}));
         }
-        Ok(serde_json::from_str(&contents)?)
+        serde_json::from_str(&contents).with_context(|| format!("parse {}", display_path(path)))
     } else {
         Ok(json!({}))
     }
+}
+
+fn hooks_object<'a>(
+    config: &'a mut serde_json::Value,
+    display: &str,
+) -> Result<&'a mut serde_json::Map<String, serde_json::Value>> {
+    config
+        .as_object_mut()
+        .with_context(|| format!("{display} is not a JSON object"))?
+        .entry("hooks")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .with_context(|| format!("`hooks` in {display} is not a JSON object"))
+}
+
+fn event_hooks<'a>(
+    hooks: &'a mut serde_json::Map<String, serde_json::Value>,
+    event: &str,
+    display: &str,
+) -> Result<&'a mut Vec<serde_json::Value>> {
+    hooks
+        .entry(event)
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .with_context(|| format!("`hooks.{event}` in {display} is not a JSON array"))
 }
 
 /// Write JSON config, replacing the file atomically.
@@ -1211,6 +1186,76 @@ mod tests {
                 );
             }
             assert!(!read(mcp).contains("symposium"), "{agent:?} {env:?}");
+        }
+    }
+
+    #[test]
+    fn config_files_symposium_cannot_parse_are_an_error_and_stay_untouched() {
+        use sacp::schema::{McpServer, McpServerStdio};
+
+        let servers = [McpServer::Stdio(McpServerStdio::new(
+            "symposium",
+            "/usr/local/bin/cargo-agents",
+        ))];
+        let out = Output::quiet();
+        let json_hooks: &[&str] = &[
+            "{",
+            "[]",
+            r#"{"hooks": []}"#,
+            r#"{"hooks": {"SessionStart": {}, "sessionStart": {}, "agentSpawn": {}}}"#,
+        ];
+        let cases: [(&str, &str, &dyn Fn(&Path) -> Result<()>, &[&str]); 6] = [
+            (
+                "claude",
+                "settings.json",
+                &|path: &Path| register_claude_hooks(path, &out),
+                json_hooks,
+            ),
+            (
+                "codex",
+                "hooks.json",
+                &|path: &Path| register_codex_hooks(path, &out),
+                json_hooks,
+            ),
+            (
+                "copilot",
+                "settings.json",
+                &|path: &Path| register_copilot_hooks_global(path, &out),
+                json_hooks,
+            ),
+            (
+                "antigravity",
+                "hooks.json",
+                &|path: &Path| register_antigravity_hooks(path, &out),
+                &["{", "[]"],
+            ),
+            (
+                "kiro",
+                "symposium.json",
+                &|path: &Path| register_kiro_hooks(path.parent().unwrap(), &out),
+                json_hooks,
+            ),
+            (
+                "codex mcp",
+                "config.toml",
+                &|path: &Path| {
+                    mcp_server_registration::register_codex_mcp_servers(path, &servers, &out)
+                },
+                &["[[[", "mcp_servers = 3"],
+            ),
+        ];
+        for (agent, file, register, contents) in cases {
+            for &contents in contents {
+                let tmp = tempfile::tempdir().unwrap();
+                let path = tmp.path().join(file);
+                fs::write(&path, contents).unwrap();
+                let error = format!("{:#}", register(&path).unwrap_err());
+                assert!(
+                    error.contains(&display_path(&path)),
+                    "{agent} {contents:?}: {error}"
+                );
+                assert_eq!(fs::read_to_string(&path).unwrap(), contents, "{agent}");
+            }
         }
     }
 

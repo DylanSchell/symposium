@@ -10,7 +10,7 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use indoc::formatdoc;
 use sacp::schema::McpServer;
 use serde_json::json;
@@ -330,10 +330,13 @@ pub(super) fn register_codex_mcp_servers(
 
     let mut doc: toml_edit::DocumentMut = content
         .parse()
-        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
+        .with_context(|| format!("parse {display}"))?;
 
     if !doc.contains_key("mcp_servers") {
         doc["mcp_servers"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    if !doc["mcp_servers"].is_table_like() {
+        bail!("`mcp_servers` in {display} is not a table");
     }
 
     let mut changed = false;
