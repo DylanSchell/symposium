@@ -21,7 +21,7 @@ The `depends-on` field controls when the plugin is active: `depends-on=["foo"]` 
 
 See the [plugin definition reference](../reference/plugin-definition.md) for the full manifest schema.
 
-### Why do users enable plugins from dependencies?
+### Will users get every crate from all their dependencies by default?
 
 Depending on a crate means compiling its code, not letting its author inject context into the user's agent. So a plugin embedded in a dependency stays off until the user enables it: an interactive [`cargo agents sync`](../reference/cargo-agents-sync.md#consent-prompt) asks about each one, and [`cargo agents use`](../reference/cargo-agents-use.md) enables one by name. Plugins in the [recommendations repository][rr] are reviewed before they are merged, so they load without that step, and a plugin that proves problematic can be removed centrally.
 
