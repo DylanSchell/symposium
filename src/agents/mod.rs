@@ -199,7 +199,7 @@ impl Agent {
             }
             Agent::Codex => register_codex_hooks(&codex_dir(sym).join("hooks.json"), out),
             Agent::Copilot => {
-                register_copilot_hooks_global(&home.join(".copilot").join("settings.json"), out)
+                register_copilot_hooks_global(&copilot_config_dir(sym).join("settings.json"), out)
             }
             Agent::Kiro => register_kiro_hooks(&home.join(".kiro").join("agents"), out),
             Agent::Goose => {
@@ -272,7 +272,7 @@ impl Agent {
             // scope therefore resolves to the same user-level file rather than
             // to a file nobody reads.
             (Agent::Codex, _) => codex_dir(sym).join("config.toml"),
-            (Agent::Copilot, _) => home.join(".copilot").join("mcp-config.json"),
+            (Agent::Copilot, _) => copilot_config_dir(sym).join("mcp-config.json"),
             (Agent::Goose, _) => xdg_config().join("goose").join("config.yaml"),
         }
     }
@@ -388,7 +388,7 @@ impl Agent {
             }
             Agent::Codex => unregister_codex_hooks(&codex_dir(sym).join("hooks.json"), out),
             Agent::Copilot => {
-                unregister_copilot_hooks_global(&home.join(".copilot").join("settings.json"), out)
+                unregister_copilot_hooks_global(&copilot_config_dir(sym).join("settings.json"), out)
             }
             Agent::Kiro => unregister_kiro_hooks(&home.join(".kiro").join("agents"), out),
             Agent::Goose => {}    // no hooks to unregister
@@ -576,6 +576,11 @@ fn unregister_codex_hooks(hooks_path: &Path, out: &Output) {
 // ---------------------------------------------------------------------------
 // GitHub Copilot hook registration
 // ---------------------------------------------------------------------------
+
+fn copilot_config_dir(sym: &Symposium) -> PathBuf {
+    sym.env_dir("COPILOT_HOME")
+        .unwrap_or_else(|| sym.home_dir().join(".copilot"))
+}
 
 /// Register hooks in the global Copilot user settings file (`~/.copilot/settings.json`).
 fn register_copilot_hooks_global(config_path: &Path, out: &Output) -> Result<()> {
@@ -1139,6 +1144,12 @@ mod tests {
                 &[("CODEX_HOME", "moved")],
                 Some("moved/hooks.json"),
                 "moved/config.toml",
+            ),
+            (
+                Agent::Copilot,
+                &[("COPILOT_HOME", "moved")],
+                Some("moved/settings.json"),
+                "moved/mcp-config.json",
             ),
         ];
         for &(agent, env, hooks, mcp) in cases {
