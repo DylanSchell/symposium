@@ -112,8 +112,14 @@ fn open_private_lock_file(path: &Path) -> io::Result<File> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+
     use super::{LockError, TelemetryLock};
     use crate::telemetry::storage::paths::StoragePaths;
+
+    fn wait_until_released(paths: &StoragePaths) {
+        File::open(paths.lock_file()).unwrap().lock().unwrap();
+    }
 
     #[test]
     fn second_acquisition_reports_contention() {
@@ -144,7 +150,7 @@ mod tests {
         let held = TelemetryLock::try_acquire(&paths).unwrap();
         drop(held);
 
-        let _reacquired = TelemetryLock::try_acquire(&paths).unwrap();
+        wait_until_released(&paths);
     }
 
     #[test]
@@ -158,7 +164,7 @@ mod tests {
         });
 
         assert!(panic.is_err());
-        let _reacquired = TelemetryLock::try_acquire(&paths).unwrap();
+        wait_until_released(&paths);
     }
 
     #[test]
