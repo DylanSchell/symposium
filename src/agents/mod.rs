@@ -197,7 +197,7 @@ impl Agent {
             Agent::Claude => {
                 register_claude_hooks(&claude_config_dir(sym).join("settings.json"), out)
             }
-            Agent::Codex => register_codex_hooks(&home.join(".codex").join("hooks.json"), out),
+            Agent::Codex => register_codex_hooks(&codex_dir(sym).join("hooks.json"), out),
             Agent::Copilot => {
                 register_copilot_hooks_global(&home.join(".copilot").join("settings.json"), out)
             }
@@ -226,10 +226,6 @@ impl Agent {
     /// Deliberately not the file its *hooks* live in: several agents keep the
     /// two apart, and writing MCP entries into the hooks file means the agent
     /// never sees them.
-    ///
-    /// Honors each tool's relocation env var (`CLAUDE_CONFIG_DIR`,
-    /// `XDG_CONFIG_HOME`), or a user who moved their config gets a file the
-    /// agent never reads.
     pub fn mcp_config_path(
         &self,
         scope: McpScope,
@@ -275,7 +271,7 @@ impl Agent {
             // from a project holding an entry: both reported none). Project
             // scope therefore resolves to the same user-level file rather than
             // to a file nobody reads.
-            (Agent::Codex, _) => home.join(".codex").join("config.toml"),
+            (Agent::Codex, _) => codex_dir(sym).join("config.toml"),
             (Agent::Copilot, _) => home.join(".copilot").join("mcp-config.json"),
             (Agent::Goose, _) => xdg_config().join("goose").join("config.yaml"),
         }
@@ -390,7 +386,7 @@ impl Agent {
             Agent::Claude => {
                 unregister_claude_hooks(&claude_config_dir(sym).join("settings.json"), out)
             }
-            Agent::Codex => unregister_codex_hooks(&home.join(".codex").join("hooks.json"), out),
+            Agent::Codex => unregister_codex_hooks(&codex_dir(sym).join("hooks.json"), out),
             Agent::Copilot => {
                 unregister_copilot_hooks_global(&home.join(".copilot").join("settings.json"), out)
             }
@@ -490,6 +486,11 @@ fn ensure_claude_hook_entry(
 // ---------------------------------------------------------------------------
 // Codex CLI hook registration
 // ---------------------------------------------------------------------------
+
+fn codex_dir(sym: &Symposium) -> PathBuf {
+    sym.env_dir("CODEX_HOME")
+        .unwrap_or_else(|| sym.home_dir().join(".codex"))
+}
 
 fn register_codex_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
     let mut settings = load_json_or_empty(hooks_path)?;
@@ -1126,12 +1127,20 @@ mod tests {
         ))];
         let out = Output::quiet();
         let project = Path::new("/project");
-        let cases: &[(Agent, &[(&str, &str)], Option<&str>, &str)] = &[(
-            Agent::Claude,
-            &[("CLAUDE_CONFIG_DIR", "moved")],
-            Some("moved/settings.json"),
-            "moved/.claude.json",
-        )];
+        let cases: &[(Agent, &[(&str, &str)], Option<&str>, &str)] = &[
+            (
+                Agent::Claude,
+                &[("CLAUDE_CONFIG_DIR", "moved")],
+                Some("moved/settings.json"),
+                "moved/.claude.json",
+            ),
+            (
+                Agent::Codex,
+                &[("CODEX_HOME", "moved")],
+                Some("moved/hooks.json"),
+                "moved/config.toml",
+            ),
+        ];
         for &(agent, env, hooks, mcp) in cases {
             let tmp = tempfile::tempdir().unwrap();
             let vars: Vec<(String, std::ffi::OsString)> = env
