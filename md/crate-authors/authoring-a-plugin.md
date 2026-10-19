@@ -17,7 +17,7 @@ name = "my-crate"
 depends-on = ["my-crate"]
 ```
 
-The `depends-on` field controls when the plugin is active: it only loads for projects that directly depend on the listed crates. Use `["*"]` to apply to all projects.
+The `depends-on` field controls when the plugin is active: `depends-on=["foo"]` means that your plugin will load if the current workspace directly depends on `"foo"`. Use `["*"]` to apply to all projects.
 
 See the [plugin definition reference](../reference/plugin-definition.md) for the full manifest schema.
 
