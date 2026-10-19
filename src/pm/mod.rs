@@ -87,6 +87,12 @@ pub trait PackageManager {
     /// plugin is *trusted* is the caller's decision — see [`PmInstance::trusted`].
     async fn active_plugins(&self, deps: &[PackageId]) -> Vec<UnvalidatedPlugin>;
 
+    /// Fails instead of returning an empty list when the source cannot be
+    /// read, since sync removes what a registry stops offering.
+    async fn registry_plugins(&self) -> Result<Vec<UnvalidatedPlugin>> {
+        Ok(self.active_plugins(&[]).await)
+    }
+
     /// The plugin(s) a specific id maps to — zero, one, or many. Used for
     /// `[[plugins]]` chained references and explicitly enabled crates.
     async fn load_plugin(&self, id: &PackageId) -> Vec<UnvalidatedPlugin>;
@@ -167,6 +173,20 @@ impl PmInstance {
     /// validation is logged and dropped: best-effort, like the PM layer above.
     pub async fn active_plugins(&self, deps: &[PackageId]) -> Vec<Plugin> {
         self.validate_all(self.pm.active_plugins(deps).await)
+    }
+
+    pub async fn registry_plugins(&self) -> Option<Vec<Plugin>> {
+        match self.pm.registry_plugins().await {
+            Ok(plugins) => Some(self.validate_all(plugins)),
+            Err(e) => {
+                tracing::warn!(
+                    report = %crate::report::ReportEvent::Warning {
+                        message: format!("{e:#}"),
+                    },
+                );
+                None
+            }
+        }
     }
 
     /// The plugin(s) an id maps to, validated.
@@ -363,6 +383,18 @@ mod tests {
     async fn invalid_package_plugin_is_not_reported() {
         let reports = reports_for_invalid_plugin(PluginKind::Package).await;
         assert!(reports.is_empty(), "{reports:?}");
+    }
+
+    #[tokio::test]
+    async fn git_registry_without_its_copy_is_unreadable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ctx = symposium_install::InstallContext::new(tmp.path().to_path_buf());
+        let pm = GitPm::new("reg", "https://github.com/example/reg", false, ctx).unwrap();
+        let err = pm.registry_plugins().await.unwrap_err();
+        assert!(
+            err.to_string().contains("cargo agents plugin sync reg"),
+            "{err}"
+        );
     }
 
     #[tokio::test]

@@ -371,6 +371,61 @@ async fn sync_preserves_user_managed_skills() {
     .unwrap();
 }
 
+#[tokio::test]
+async fn sync_keeps_skills_of_a_registry_it_cannot_read() {
+    let breakages: [fn(&Path); 2] = [
+        |ext| std::fs::rename(ext, ext.with_extension("unmounted")).unwrap(),
+        |ext| std::fs::write(ext.join(symposium::pm::layout::MANIFEST_FILE), "").unwrap(),
+    ];
+    for breakage in breakages {
+        with_fixture(
+            TestMode::SimulationOnly,
+            &["unreadable-registry0", "workspace-empty0"],
+            async |mut ctx| {
+                ctx.symposium(&["init", "--add-agent", "claude"]).await?;
+                ctx.symposium(&["sync"]).await?;
+                let skills = ctx.workspace_root.as_ref().unwrap().join(".claude/skills");
+                assert!(!find_installed_skills(&skills, "house-style").is_empty());
+
+                breakage(&ctx.tempdir.join("ext"));
+                let events = ctx.sync_with_report(tracing::Level::INFO).await?;
+                assert!(!find_installed_skills(&skills, "house-style").is_empty());
+                assert!(
+                    events.iter().any(|e| e["kind"] == "warning"
+                        && e["message"]
+                            .as_str()
+                            .is_some_and(|m| m.contains("`ext`") && m.contains("skipped cleanup"))),
+                    "expected a warning naming `ext`, got: {events:?}"
+                );
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn sync_cleans_up_without_a_user_plugins_directory() {
+    with_fixture(
+        TestMode::SimulationOnly,
+        &["unreadable-registry0", "workspace-empty0"],
+        async |mut ctx| {
+            ctx.symposium(&["init", "--add-agent", "claude"]).await?;
+            ctx.symposium(&["sync"]).await?;
+            let skills = ctx.workspace_root.as_ref().unwrap().join(".claude/skills");
+            assert!(!find_installed_skills(&skills, "house-style").is_empty());
+
+            std::fs::remove_dir_all(ctx.tempdir.join("ext/house-style"))?;
+            ctx.symposium(&["sync"]).await?;
+            assert!(find_installed_skills(&skills, "house-style").is_empty());
+            Ok(())
+        },
+    )
+    .await
+    .unwrap();
+}
+
 /// Copilot uses vendor-neutral `.agents/skills/` path, not `.claude/skills/`.
 #[test]
 fn copilot_uses_vendor_neutral_skill_path() {

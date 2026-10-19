@@ -588,10 +588,11 @@ pub async fn sync(sym: &Symposium, deps: &Arc<WorkspaceDeps>, update: UpdateLeve
     // Stale-skill cleanup: scan every agent's skills parent directory (across
     // all known agents, so we also clean up after agents removed from config)
     // and remove subdirs containing the marker that we didn't just install.
+    let skip_cleanup = !registry.unreadable_registries.is_empty();
     let mut scanned: BTreeSet<PathBuf> = BTreeSet::new();
     for &agent in Agent::all() {
         let parent = skills_parent_dir(agent, &project_root);
-        if !scanned.insert(parent.clone()) {
+        if skip_cleanup || !scanned.insert(parent.clone()) {
             continue;
         }
         let Ok(entries) = fs::read_dir(&parent) else {
@@ -622,6 +623,15 @@ pub async fn sync(sym: &Symposium, deps: &Arc<WorkspaceDeps>, update: UpdateLeve
                 }
             }
         }
+    }
+    for name in &registry.unreadable_registries {
+        tracing::info!(
+            report = %crate::report::ReportEvent::Warning {
+                message: format!(
+                    "registry `{name}` could not be read; skipped cleanup of installed skills"
+                ),
+            },
+        );
     }
 
     // Hooks come off at whichever scope they would have been written to; MCP

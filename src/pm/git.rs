@@ -64,6 +64,16 @@ impl PackageManager for GitPm {
         self.inner.active_plugins(deps).await
     }
 
+    async fn registry_plugins(&self) -> Result<Vec<UnvalidatedPlugin>> {
+        let name = &self.name;
+        if !self.inner.dir.exists() {
+            anyhow::bail!(
+                "registry `{name}` has not been fetched yet; run `cargo agents plugin sync {name}`"
+            );
+        }
+        self.inner.registry_plugins().await
+    }
+
     async fn load_plugin(&self, id: &PackageId) -> Vec<UnvalidatedPlugin> {
         self.inner.load_plugin(id).await
     }

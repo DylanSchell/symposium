@@ -623,7 +623,9 @@ impl Symposium {
             });
         }
 
-        if self.config.defaults.user_plugins {
+        if self.config.defaults.user_plugins
+            && fs::symlink_metadata(self.dirs.config_dir.join("plugins")).is_ok()
+        {
             configs.push(RegistryConfig {
                 name: "user-plugins".to_string(),
                 git: None,
