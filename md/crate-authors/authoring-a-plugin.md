@@ -241,9 +241,10 @@ source = "cargo"
 crate = "my-crate-cli"
 executable = "my-crate-cli"
 
+# `cargo agents my-crate check` runs `my-crate-cli check`
 [subcommand.my-crate]
 description = "Check and inspect the widgets in this workspace"
-command = "my-crate-cli"
+command = "my-crate-cli" # the [[installations]] entry that provides the tool
 ```
 
 `cargo agents --help` lists the subcommand under "Commands for agents" with its `description`, and on agents that run hooks, Symposium suggests running `cargo agents --help` at the start of each session in a project that has one. Your tool's output and exit code are passed through. See the [plugin definition reference](../reference/plugin-definition.md) for the other `[subcommand.<name>]` fields.

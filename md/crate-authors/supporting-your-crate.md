@@ -65,6 +65,6 @@ Beyond skills, there are three more extension types you can publish through a pl
 
 - **Hooks**: checks and transformations that run when the AI performs certain actions, like writing code or running commands.
 - **MCP servers**: tools and resources exposed to agents via the Model Context Protocol.
-- **Subcommands**: your crate's own command-line tool, which agents run as `cargo agents my-crate <command>`.
+- **Subcommands**: your crate's own command-line tool, which agents and users run as `cargo agents my-crate <command>`.
 
 See [Authoring a plugin](./authoring-a-plugin.md) for how to set one up.
