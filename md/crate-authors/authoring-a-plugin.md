@@ -81,7 +81,7 @@ Add `[package.metadata.symposium]` to your crate's `Cargo.toml` to declare your 
 source.path = "docs/agent-skills"
 ```
 
-The default `skills/` group is kept next to yours (it finds nothing if the directory doesn't exist); set `[package.metadata.symposium.defaults] skills = false` to turn it off. With neither a metadata section nor a `Symposium.toml`, Symposium uses only the `skills/` directory. See [Supporting your crate](./supporting-your-crate.md) for the full schema including chained references to other crates.
+By default, Symposium looks for skills in `skills/`. Adding a `skills` section does not disable this default, it adds another source for skills in addition to the default. If you wish to disable the default, set `[package.metadata.symposium.defaults] skills = false`. If you only want to use the default location, you don't even need a `Symposium.toml`. See [Supporting your crate](./supporting-your-crate.md) for the full schema including chained references to other crates.
 
 ##### Ship a full `Symposium.toml` in your crate
 
