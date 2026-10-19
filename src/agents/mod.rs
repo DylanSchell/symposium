@@ -273,7 +273,10 @@ impl Agent {
             // to a file nobody reads.
             (Agent::Codex, _) => codex_dir(sym).join("config.toml"),
             (Agent::Copilot, _) => copilot_config_dir(sym).join("mcp-config.json"),
-            (Agent::Goose, _) => xdg_config().join("goose").join("config.yaml"),
+            (Agent::Goose, _) => goose_path_root(sym)
+                .map(|root| root.join("config"))
+                .unwrap_or_else(|| xdg_config().join("goose"))
+                .join("config.yaml"),
         }
     }
 
@@ -1022,6 +1025,10 @@ fn unregister_flat_hooks(config_path: &Path, command_key: &str, out: &Output) {
 // Helpers
 // ---------------------------------------------------------------------------
 
+fn goose_path_root(sym: &Symposium) -> Option<PathBuf> {
+    sym.env_dir("GOOSE_PATH_ROOT")
+}
+
 fn event_to_cli_arg(event: &str) -> &str {
     match event {
         "PreToolUse" | "preToolUse" => "pre-tool-use",
@@ -1150,6 +1157,18 @@ mod tests {
                 &[("COPILOT_HOME", "moved")],
                 Some("moved/settings.json"),
                 "moved/mcp-config.json",
+            ),
+            (
+                Agent::Goose,
+                &[("GOOSE_PATH_ROOT", "moved"), ("XDG_CONFIG_HOME", "xdg")],
+                None,
+                "moved/config/config.yaml",
+            ),
+            (
+                Agent::Goose,
+                &[("GOOSE_PATH_ROOT", ""), ("XDG_CONFIG_HOME", "xdg")],
+                None,
+                "xdg/goose/config.yaml",
             ),
         ];
         for &(agent, env, hooks, mcp) in cases {
