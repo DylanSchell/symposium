@@ -64,6 +64,9 @@ pub enum HookAgent {
     #[cfg_attr(feature = "clap", value(name = "opencode"))]
     #[serde(rename = "opencode")]
     OpenCode,
+    #[cfg_attr(feature = "clap", value(name = "pi"))]
+    #[serde(rename = "pi")]
+    Pi,
 }
 
 impl HookAgent {
@@ -77,6 +80,7 @@ impl HookAgent {
             HookAgent::Goose => "goose",
             HookAgent::Kiro => "kiro",
             HookAgent::OpenCode => "opencode",
+            HookAgent::Pi => "pi",
         }
     }
 }

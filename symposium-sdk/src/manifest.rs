@@ -375,6 +375,10 @@ pub enum HookFormat {
     Codex,
     Copilot,
     Kiro,
+    /// Pi's format, delivered by symposium's Pi extension (see
+    /// `md/design/agent-details/pi.md`): Pi runs no shell commands itself, so a
+    /// hook in this format fires only when the host agent is Pi.
+    Pi,
 }
 
 impl HookFormat {
@@ -387,6 +391,7 @@ impl HookFormat {
             HookFormat::Codex => Some(HookAgent::Codex),
             HookFormat::Copilot => Some(HookAgent::Copilot),
             HookFormat::Kiro => Some(HookAgent::Kiro),
+            HookFormat::Pi => Some(HookAgent::Pi),
         }
     }
 }
