@@ -45,6 +45,7 @@ async fn session_start_keeps_symposium_and_plugin_context() {
             HookAgent::Copilot,
             HookAgent::Kiro,
             HookAgent::Antigravity,
+            HookAgent::Pi,
         ] {
             let stdout = respond(&ctx, agent, HookStep::session_start()).await;
             assert_in_order(

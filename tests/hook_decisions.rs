@@ -10,12 +10,13 @@ use symposium::hook::HookResponse;
 use symposium::hook_schema::{HookAgent, agent_event};
 use symposium_testlib::{HookStep, TestContext, TestMode, with_fixture};
 
-const ALL_AGENTS: [HookAgent; 5] = [
+const ALL_AGENTS: [HookAgent; 6] = [
     HookAgent::Claude,
     HookAgent::Codex,
     HookAgent::Copilot,
     HookAgent::Kiro,
     HookAgent::Antigravity,
+    HookAgent::Pi,
 ];
 
 const DENY_REASON: &str = "denied by the decisions plugin";
@@ -76,6 +77,8 @@ fn assert_denied(agent: HookAgent, response: &HookResponse, reason: &str) {
             "permissionDecisionReason": reason,
         }),
         HookAgent::Antigravity => json!({"decision": "deny", "reason": reason}),
+        // Pi's extension bridge blocks by return value; it reads no exit code.
+        HookAgent::Pi => json!({ "block": true, "reason": reason }),
         other => unreachable!("{other:?} has no PreToolUse hook"),
     };
     assert_eq!(
@@ -127,7 +130,9 @@ async fn plugin_exit_2_denies_the_tool_call_on_every_agent() {
 /// A rewrite reaches every agent that can apply it without approving the
 /// call on the user's behalf: Claude gets `ask`, so the user sees the
 /// rewritten call. Codex (allow-only) and Kiro (no rewrite) leave the call
-/// untouched rather than run something else.
+/// untouched rather than run something else. Pi and Antigravity have no `ask`
+/// state, so the rewrite is applied to the arguments directly (Pi mutates
+/// `event.input`, Antigravity takes `overwrite`).
 #[tokio::test(flavor = "multi_thread")]
 async fn plugin_rewrite_reaches_agents_that_can_apply_it() {
     with_fixture(
@@ -153,6 +158,7 @@ async fn plugin_rewrite_reaches_agents_that_can_apply_it() {
                     HookAgent::Codex => json!({}),
                     HookAgent::Copilot => json!({"modifiedArgs": rewritten}),
                     HookAgent::Antigravity => json!({"decision": "allow", "overwrite": rewritten}),
+                    HookAgent::Pi => json!({ "updatedInput": rewritten }),
                     other => unreachable!("{other:?} has no PreToolUse hook"),
                 };
                 assert_eq!(stdout_json(&response), expected, "{agent:?} rewrite");
