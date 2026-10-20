@@ -9,7 +9,7 @@ mod mcp_server_registration;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde_json::json;
 
 use crate::config::Symposium;
@@ -186,7 +186,7 @@ impl Agent {
     }
 
     /// Register hooks in the global agent config.
-    pub fn register_hooks(&self, home: &Path, _sym: &Symposium, out: &Output) -> Result<()> {
+    pub fn register_hooks(&self, home: &Path, sym: &Symposium, out: &Output) -> Result<()> {
         tracing::debug!(agent = %self.config_name(), "registering hooks");
         // Register hooks
         match self {
@@ -195,11 +195,11 @@ impl Agent {
                 out,
             ),
             Agent::Claude => {
-                register_claude_hooks(&home.join(".claude").join("settings.json"), out)
+                register_claude_hooks(&claude_config_dir(sym).join("settings.json"), out)
             }
-            Agent::Codex => register_codex_hooks(&home.join(".codex").join("hooks.json"), out),
+            Agent::Codex => register_codex_hooks(&codex_dir(sym).join("hooks.json"), out),
             Agent::Copilot => {
-                register_copilot_hooks_global(&home.join(".copilot").join("settings.json"), out)
+                register_copilot_hooks_global(&copilot_config_dir(sym).join("settings.json"), out)
             }
             Agent::Kiro => register_kiro_hooks(&home.join(".kiro").join("agents"), out),
             Agent::Goose => {
@@ -226,23 +226,24 @@ impl Agent {
     /// Deliberately not the file its *hooks* live in: several agents keep the
     /// two apart, and writing MCP entries into the hooks file means the agent
     /// never sees them.
-    ///
-    /// Honors each tool's relocation env var (`CLAUDE_CONFIG_DIR`,
-    /// `XDG_CONFIG_HOME`), or a user who moved their config gets a file the
-    /// agent never reads.
-    pub fn mcp_config_path(&self, scope: McpScope, project_root: &Path, home: &Path) -> PathBuf {
-        let env_dir = |name: &str| {
-            std::env::var_os(name)
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from)
+    pub fn mcp_config_path(
+        &self,
+        scope: McpScope,
+        project_root: &Path,
+        sym: &Symposium,
+    ) -> PathBuf {
+        let home = sym.home_dir();
+        let xdg_config = || {
+            sym.env_dir("XDG_CONFIG_HOME")
+                .unwrap_or_else(|| home.join(".config"))
         };
-        let xdg_config = || env_dir("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
 
         match (self, scope) {
             // Project MCP is `.mcp.json`; the user-level file is `.claude.json`.
             // Neither is `settings.json`, which holds hooks.
             (Agent::Claude, McpScope::Project) => project_root.join(".mcp.json"),
-            (Agent::Claude, McpScope::User) => env_dir("CLAUDE_CONFIG_DIR")
+            (Agent::Claude, McpScope::User) => sym
+                .env_dir("CLAUDE_CONFIG_DIR")
                 .unwrap_or_else(|| home.to_path_buf())
                 .join(".claude.json"),
 
@@ -270,9 +271,12 @@ impl Agent {
             // from a project holding an entry: both reported none). Project
             // scope therefore resolves to the same user-level file rather than
             // to a file nobody reads.
-            (Agent::Codex, _) => home.join(".codex").join("config.toml"),
-            (Agent::Copilot, _) => home.join(".copilot").join("mcp-config.json"),
-            (Agent::Goose, _) => xdg_config().join("goose").join("config.yaml"),
+            (Agent::Codex, _) => codex_dir(sym).join("config.toml"),
+            (Agent::Copilot, _) => copilot_config_dir(sym).join("mcp-config.json"),
+            (Agent::Goose, _) => goose_path_root(sym)
+                .map(|root| root.join("config"))
+                .unwrap_or_else(|| xdg_config().join("goose"))
+                .join("config.yaml"),
         }
     }
 
@@ -292,12 +296,12 @@ impl Agent {
         &self,
         scope: McpScope,
         project_root: &Path,
-        home: &Path,
+        sym: &Symposium,
         servers: &[sacp::schema::McpServer],
         out: &Output,
     ) -> Result<()> {
         tracing::debug!(agent = %self.config_name(), count = servers.len(), ?scope, "registering MCP servers");
-        let path = self.mcp_config_path(scope, project_root, home);
+        let path = self.mcp_config_path(scope, project_root, sym);
         match self {
             Agent::Claude => {
                 mcp_server_registration::register_claude_mcp_servers(&path, servers, out)
@@ -326,11 +330,11 @@ impl Agent {
         &self,
         scope: McpScope,
         project_root: &Path,
-        home: &Path,
+        sym: &Symposium,
         names: &[&str],
         out: &Output,
     ) -> Result<()> {
-        let path = self.mcp_config_path(scope, project_root, home);
+        let path = self.mcp_config_path(scope, project_root, sym);
         match self {
             Agent::Claude => {
                 mcp_server_registration::unregister_claude_mcp_servers(&path, names, out)
@@ -376,18 +380,18 @@ impl Agent {
     }
 
     /// Remove hooks from the global agent config.
-    pub fn unregister_hooks(&self, home: &Path, _sym: &Symposium, out: &Output) {
+    pub fn unregister_hooks(&self, home: &Path, sym: &Symposium, out: &Output) {
         match self {
             Agent::Antigravity => unregister_antigravity_hooks(
                 &home.join(".gemini").join("config").join("hooks.json"),
                 out,
             ),
             Agent::Claude => {
-                unregister_claude_hooks(&home.join(".claude").join("settings.json"), out)
+                unregister_claude_hooks(&claude_config_dir(sym).join("settings.json"), out)
             }
-            Agent::Codex => unregister_codex_hooks(&home.join(".codex").join("hooks.json"), out),
+            Agent::Codex => unregister_codex_hooks(&codex_dir(sym).join("hooks.json"), out),
             Agent::Copilot => {
-                unregister_copilot_hooks_global(&home.join(".copilot").join("settings.json"), out)
+                unregister_copilot_hooks_global(&copilot_config_dir(sym).join("settings.json"), out)
             }
             Agent::Kiro => unregister_kiro_hooks(&home.join(".kiro").join("agents"), out),
             Agent::Goose => {}    // no hooks to unregister
@@ -400,17 +404,15 @@ impl Agent {
 // Claude Code hook registration
 // ---------------------------------------------------------------------------
 
+fn claude_config_dir(sym: &Symposium) -> PathBuf {
+    sym.env_dir("CLAUDE_CONFIG_DIR")
+        .unwrap_or_else(|| sym.home_dir().join(".claude"))
+}
+
 fn register_claude_hooks(settings_path: &Path, out: &Output) -> Result<()> {
     let mut settings = load_json_or_empty(settings_path)?;
     let display = display_path(settings_path);
-
-    let hooks = settings
-        .as_object_mut()
-        .unwrap()
-        .entry("hooks")
-        .or_insert_with(|| json!({}));
-
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let hooks_obj = hooks_object(&mut settings, &display)?;
 
     let mut added = Vec::new();
 
@@ -422,7 +424,7 @@ fn register_claude_hooks(settings_path: &Path, out: &Output) -> Result<()> {
         "Stop",
     ] {
         let command = format!("cargo-agents hook claude {}", event_to_cli_arg(event));
-        if ensure_claude_hook_entry(hooks_obj, event, &command) {
+        if ensure_claude_hook_entry(event_hooks(hooks_obj, event, &display)?, &command) {
             added.push(event);
         }
     }
@@ -438,18 +440,7 @@ fn register_claude_hooks(settings_path: &Path, out: &Output) -> Result<()> {
 }
 
 /// Returns `true` if a new entry was added, `false` if already registered.
-fn ensure_claude_hook_entry(
-    hooks: &mut serde_json::Map<String, serde_json::Value>,
-    event: &str,
-    command: &str,
-) -> bool {
-    let event_hooks = hooks.entry(event).or_insert_with(|| json!([]));
-
-    let arr = match event_hooks.as_array_mut() {
-        Some(a) => a,
-        None => return false,
-    };
-
+fn ensure_claude_hook_entry(arr: &mut Vec<serde_json::Value>, command: &str) -> bool {
     let already_registered = arr.iter().any(|group| {
         group
             .get("hooks")
@@ -481,17 +472,15 @@ fn ensure_claude_hook_entry(
 // Codex CLI hook registration
 // ---------------------------------------------------------------------------
 
+fn codex_dir(sym: &Symposium) -> PathBuf {
+    sym.env_dir("CODEX_HOME")
+        .unwrap_or_else(|| sym.home_dir().join(".codex"))
+}
+
 fn register_codex_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
     let mut settings = load_json_or_empty(hooks_path)?;
     let display = display_path(hooks_path);
-
-    let hooks = settings
-        .as_object_mut()
-        .unwrap()
-        .entry("hooks")
-        .or_insert_with(|| json!({}));
-
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let hooks_obj = hooks_object(&mut settings, &display)?;
 
     let mut added = Vec::new();
 
@@ -502,7 +491,7 @@ fn register_codex_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
         "SessionStart",
     ] {
         let command = format!("cargo-agents hook codex {}", event_to_cli_arg(event));
-        if ensure_codex_hook_entry(hooks_obj, event, &command) {
+        if ensure_codex_hook_entry(event_hooks(hooks_obj, event, &display)?, &command) {
             added.push(event);
         }
     }
@@ -518,18 +507,7 @@ fn register_codex_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
 }
 
 /// Returns `true` if a new entry was added, `false` if already registered.
-fn ensure_codex_hook_entry(
-    hooks: &mut serde_json::Map<String, serde_json::Value>,
-    event: &str,
-    command: &str,
-) -> bool {
-    let event_hooks = hooks.entry(event).or_insert_with(|| json!([]));
-
-    let arr = match event_hooks.as_array_mut() {
-        Some(a) => a,
-        None => return false,
-    };
-
+fn ensure_codex_hook_entry(arr: &mut Vec<serde_json::Value>, command: &str) -> bool {
     let already_registered = arr.iter().any(|group| {
         group
             .get("hooks")
@@ -566,18 +544,16 @@ fn unregister_codex_hooks(hooks_path: &Path, out: &Output) {
 // GitHub Copilot hook registration
 // ---------------------------------------------------------------------------
 
+fn copilot_config_dir(sym: &Symposium) -> PathBuf {
+    sym.env_dir("COPILOT_HOME")
+        .unwrap_or_else(|| sym.home_dir().join(".copilot"))
+}
+
 /// Register hooks in the global Copilot user settings file (`~/.copilot/settings.json`).
 fn register_copilot_hooks_global(config_path: &Path, out: &Output) -> Result<()> {
     let display = display_path(config_path);
     let mut config = load_json_or_empty(config_path)?;
-
-    let hooks = config
-        .as_object_mut()
-        .unwrap()
-        .entry("hooks")
-        .or_insert_with(|| json!({}));
-
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let hooks_obj = hooks_object(&mut config, &display)?;
 
     // Check if already registered
     let already = hooks_obj.values().any(|arr| {
@@ -597,10 +573,7 @@ fn register_copilot_hooks_global(config_path: &Path, out: &Output) -> Result<()>
 
     let copilot_hooks = copilot_hook_entries();
     for (event, entry) in copilot_hooks {
-        let arr = hooks_obj.entry(event).or_insert_with(|| json!([]));
-        if let Some(a) = arr.as_array_mut() {
-            a.push(entry);
-        }
+        event_hooks(hooks_obj, event, &display)?.push(entry);
     }
 
     save_json(config_path, &config)?;
@@ -729,7 +702,9 @@ fn register_antigravity_hooks(hooks_path: &Path, out: &Output) -> Result<()> {
     }
     let entry = serde_json::Value::Object(entry);
 
-    let obj = config.as_object_mut().unwrap();
+    let obj = config
+        .as_object_mut()
+        .with_context(|| format!("{display} is not a JSON object"))?;
     if obj.get(ANTIGRAVITY_HOOK_NAME) == Some(&entry) {
         out.already_ok(format!("{display}: hooks already registered"));
         return Ok(());
@@ -771,8 +746,11 @@ fn unregister_antigravity_hooks(hooks_path: &Path, out: &Output) {
 fn merge_kiro_hooks(
     config: &mut serde_json::Value,
     default_name: &str,
-) -> (bool, Vec<&'static str>) {
-    let obj = config.as_object_mut().unwrap();
+    display: &str,
+) -> Result<(bool, Vec<&'static str>)> {
+    let obj = config
+        .as_object_mut()
+        .with_context(|| format!("{display} is not a JSON object"))?;
     let mut changed = false;
 
     // Use a helper to track insertions.
@@ -796,16 +774,18 @@ fn merge_kiro_hooks(
         json!({})
     });
 
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let hooks_obj = hooks
+        .as_object_mut()
+        .with_context(|| format!("`hooks` in {display} is not a JSON object"))?;
 
     let mut added = Vec::new();
     for (event, entry) in kiro_hook_entries() {
-        if ensure_kiro_hook_entry(hooks_obj, event, &entry) {
+        if ensure_kiro_hook_entry(event_hooks(hooks_obj, event, display)?, &entry) {
             added.push(event);
             changed = true;
         }
     }
-    (changed, added)
+    Ok((changed, added))
 }
 
 /// Register hooks by creating a Kiro agent file (`.kiro/agents/symposium.json`).
@@ -815,7 +795,7 @@ fn register_kiro_hooks(agents_dir: &Path, out: &Output) -> Result<()> {
     let display = display_path(&hook_file);
 
     let mut config = load_json_or_empty(&hook_file)?;
-    let (changed, added) = merge_kiro_hooks(&mut config, "symposium");
+    let (changed, added) = merge_kiro_hooks(&mut config, "symposium", &display)?;
 
     if !changed {
         out.already_ok(format!("{display}: hooks already registered"));
@@ -832,18 +812,7 @@ fn register_kiro_hooks(agents_dir: &Path, out: &Output) -> Result<()> {
 }
 
 /// Returns `true` if a new entry was added, `false` if already registered.
-fn ensure_kiro_hook_entry(
-    hooks: &mut serde_json::Map<String, serde_json::Value>,
-    event: &str,
-    entry: &serde_json::Value,
-) -> bool {
-    let event_hooks = hooks.entry(event).or_insert_with(|| json!([]));
-
-    let arr = match event_hooks.as_array_mut() {
-        Some(a) => a,
-        None => return false,
-    };
-
+fn ensure_kiro_hook_entry(arr: &mut Vec<serde_json::Value>, entry: &serde_json::Value) -> bool {
     // Kiro uses a flat structure: each entry has `command` directly (no nested `hooks` array)
     let already_registered = arr.iter().any(|e| {
         e.get("command")
@@ -1006,6 +975,10 @@ fn unregister_flat_hooks(config_path: &Path, command_key: &str, out: &Output) {
 // Helpers
 // ---------------------------------------------------------------------------
 
+fn goose_path_root(sym: &Symposium) -> Option<PathBuf> {
+    sym.env_dir("GOOSE_PATH_ROOT")
+}
+
 fn event_to_cli_arg(event: &str) -> &str {
     match event {
         "PreToolUse" | "preToolUse" => "pre-tool-use",
@@ -1023,10 +996,35 @@ fn load_json_or_empty(path: &Path) -> Result<serde_json::Value> {
         if contents.trim().is_empty() {
             return Ok(json!({}));
         }
-        Ok(serde_json::from_str(&contents)?)
+        serde_json::from_str(&contents).with_context(|| format!("parse {}", display_path(path)))
     } else {
         Ok(json!({}))
     }
+}
+
+fn hooks_object<'a>(
+    config: &'a mut serde_json::Value,
+    display: &str,
+) -> Result<&'a mut serde_json::Map<String, serde_json::Value>> {
+    config
+        .as_object_mut()
+        .with_context(|| format!("{display} is not a JSON object"))?
+        .entry("hooks")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .with_context(|| format!("`hooks` in {display} is not a JSON object"))
+}
+
+fn event_hooks<'a>(
+    hooks: &'a mut serde_json::Map<String, serde_json::Value>,
+    event: &str,
+    display: &str,
+) -> Result<&'a mut Vec<serde_json::Value>> {
+    hooks
+        .entry(event)
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .with_context(|| format!("`hooks.{event}` in {display} is not a JSON array"))
 }
 
 /// Write JSON config, replacing the file atomically.
@@ -1070,68 +1068,194 @@ mod tests {
     /// file the agent never reads.
     #[test]
     fn mcp_config_paths_match_what_each_agent_reads() {
+        let home = tempfile::tempdir().unwrap();
+        let sym = Symposium::from_dir(home.path());
         let project = Path::new("/project");
-        let home = Path::new("/home/user");
         let cases = [
-            (
-                Agent::Claude,
-                "/project/.mcp.json",
-                "/home/user/.claude.json",
-            ),
+            (Agent::Claude, "/project/.mcp.json", ".claude.json"),
             (
                 Agent::Antigravity,
                 "/project/.agents/mcp_config.json",
-                "/home/user/.gemini/config/mcp_config.json",
+                ".gemini/config/mcp_config.json",
             ),
             (
                 Agent::OpenCode,
                 "/project/opencode.json",
-                "/home/user/.config/opencode/opencode.json",
+                ".config/opencode/opencode.json",
             ),
             (
                 Agent::Kiro,
                 "/project/.kiro/settings/mcp.json",
-                "/home/user/.kiro/settings/mcp.json",
+                ".kiro/settings/mcp.json",
             ),
         ];
         for (agent, project_path, user_path) in cases {
             assert_eq!(
-                agent.mcp_config_path(McpScope::Project, project, home),
+                agent.mcp_config_path(McpScope::Project, project, &sym),
                 PathBuf::from(project_path),
                 "{agent:?} project scope"
             );
-            // Env-relocatable on purpose; mutating env here would race other tests.
-            if !relocated_by_env(agent) {
-                assert_eq!(
-                    agent.mcp_config_path(McpScope::User, project, home),
-                    PathBuf::from(user_path),
-                    "{agent:?} user scope"
-                );
-            }
+            assert_eq!(
+                agent.mcp_config_path(McpScope::User, project, &sym),
+                home.path().join(user_path),
+                "{agent:?} user scope"
+            );
             assert!(agent.supports_project_mcp_scope(), "{agent:?}");
         }
     }
 
-    /// Is this agent's user-scope path redirected by an env var right now?
-    fn relocated_by_env(agent: Agent) -> bool {
-        let set = |name: &str| std::env::var_os(name).is_some_and(|v| !v.is_empty());
-        match agent {
-            Agent::Claude => set("CLAUDE_CONFIG_DIR"),
-            Agent::OpenCode | Agent::Goose => set("XDG_CONFIG_HOME"),
-            _ => false,
+    #[test]
+    fn user_files_follow_each_agents_relocation_variable() {
+        use sacp::schema::{McpServer, McpServerStdio};
+
+        let servers = [McpServer::Stdio(McpServerStdio::new(
+            "symposium",
+            "/usr/local/bin/cargo-agents",
+        ))];
+        let out = Output::quiet();
+        let project = Path::new("/project");
+        let cases: &[(Agent, &[(&str, &str)], Option<&str>, &str)] = &[
+            (
+                Agent::Claude,
+                &[("CLAUDE_CONFIG_DIR", "moved")],
+                Some("moved/settings.json"),
+                "moved/.claude.json",
+            ),
+            (
+                Agent::Codex,
+                &[("CODEX_HOME", "moved")],
+                Some("moved/hooks.json"),
+                "moved/config.toml",
+            ),
+            (
+                Agent::Copilot,
+                &[("COPILOT_HOME", "moved")],
+                Some("moved/settings.json"),
+                "moved/mcp-config.json",
+            ),
+            (
+                Agent::Goose,
+                &[("GOOSE_PATH_ROOT", "moved"), ("XDG_CONFIG_HOME", "xdg")],
+                None,
+                "moved/config/config.yaml",
+            ),
+            (
+                Agent::Goose,
+                &[("GOOSE_PATH_ROOT", ""), ("XDG_CONFIG_HOME", "xdg")],
+                None,
+                "xdg/goose/config.yaml",
+            ),
+        ];
+        for &(agent, env, hooks, mcp) in cases {
+            let tmp = tempfile::tempdir().unwrap();
+            let vars: Vec<(String, std::ffi::OsString)> = env
+                .iter()
+                .map(|&(name, dir)| match dir {
+                    "" => (name.to_string(), "".into()),
+                    dir => (name.to_string(), tmp.path().join(dir).into_os_string()),
+                })
+                .collect();
+            let mut sym = Symposium::from_dir(&tmp.path().join("home"));
+            sym.set_env(move |name| {
+                vars.iter()
+                    .find(|(var, _)| var == name)
+                    .map(|(_, value)| value.clone())
+            });
+            let read = |file: &str| fs::read_to_string(tmp.path().join(file)).unwrap();
+
+            agent.register_hooks(sym.home_dir(), &sym, &out).unwrap();
+            agent
+                .register_mcp_servers(McpScope::User, project, &sym, &servers, &out)
+                .unwrap();
+            if let Some(hooks) = hooks {
+                assert!(
+                    read(hooks).contains("cargo-agents hook"),
+                    "{agent:?} {env:?}"
+                );
+            }
+            assert!(read(mcp).contains("symposium"), "{agent:?} {env:?}");
+
+            agent.unregister_hooks(sym.home_dir(), &sym, &out);
+            agent
+                .unregister_mcp_servers(McpScope::User, project, &sym, &["symposium"], &out)
+                .unwrap();
+            if let Some(hooks) = hooks {
+                assert!(
+                    !read(hooks).contains("cargo-agents hook"),
+                    "{agent:?} {env:?}"
+                );
+            }
+            assert!(!read(mcp).contains("symposium"), "{agent:?} {env:?}");
         }
     }
 
     #[test]
-    fn claude_user_path_follows_claude_config_dir() {
-        let path = Agent::Claude.mcp_config_path(
-            McpScope::User,
-            Path::new("/project"),
-            Path::new("/home/user"),
-        );
-        match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()) {
-            Some(dir) => assert_eq!(path, PathBuf::from(dir).join(".claude.json")),
-            None => assert_eq!(path, PathBuf::from("/home/user/.claude.json")),
+    fn config_files_symposium_cannot_parse_are_an_error_and_stay_untouched() {
+        use sacp::schema::{McpServer, McpServerStdio};
+
+        let servers = [McpServer::Stdio(McpServerStdio::new(
+            "symposium",
+            "/usr/local/bin/cargo-agents",
+        ))];
+        let out = Output::quiet();
+        let json_hooks: &[&str] = &[
+            "{",
+            "[]",
+            r#"{"hooks": []}"#,
+            r#"{"hooks": {"SessionStart": {}, "sessionStart": {}, "agentSpawn": {}}}"#,
+        ];
+        let cases: [(&str, &str, &dyn Fn(&Path) -> Result<()>, &[&str]); 6] = [
+            (
+                "claude",
+                "settings.json",
+                &|path: &Path| register_claude_hooks(path, &out),
+                json_hooks,
+            ),
+            (
+                "codex",
+                "hooks.json",
+                &|path: &Path| register_codex_hooks(path, &out),
+                json_hooks,
+            ),
+            (
+                "copilot",
+                "settings.json",
+                &|path: &Path| register_copilot_hooks_global(path, &out),
+                json_hooks,
+            ),
+            (
+                "antigravity",
+                "hooks.json",
+                &|path: &Path| register_antigravity_hooks(path, &out),
+                &["{", "[]"],
+            ),
+            (
+                "kiro",
+                "symposium.json",
+                &|path: &Path| register_kiro_hooks(path.parent().unwrap(), &out),
+                json_hooks,
+            ),
+            (
+                "codex mcp",
+                "config.toml",
+                &|path: &Path| {
+                    mcp_server_registration::register_codex_mcp_servers(path, &servers, &out)
+                },
+                &["[[[", "mcp_servers = 3"],
+            ),
+        ];
+        for (agent, file, register, contents) in cases {
+            for &contents in contents {
+                let tmp = tempfile::tempdir().unwrap();
+                let path = tmp.path().join(file);
+                fs::write(&path, contents).unwrap();
+                let error = format!("{:#}", register(&path).unwrap_err());
+                assert!(
+                    error.contains(&display_path(&path)),
+                    "{agent} {contents:?}: {error}"
+                );
+                assert_eq!(fs::read_to_string(&path).unwrap(), contents, "{agent}");
+            }
         }
     }
 
@@ -1139,26 +1263,21 @@ mod tests {
     /// there rather than to a project file they would ignore.
     #[test]
     fn agents_without_project_mcp_scope_fall_back_to_the_user_file() {
+        let home = tempfile::tempdir().unwrap();
+        let sym = Symposium::from_dir(home.path());
         let project = Path::new("/project");
-        let home = Path::new("/home/user");
         for (agent, expected) in [
-            (Agent::Codex, "/home/user/.codex/config.toml"),
-            (Agent::Copilot, "/home/user/.copilot/mcp-config.json"),
-            (Agent::Goose, "/home/user/.config/goose/config.yaml"),
+            (Agent::Codex, ".codex/config.toml"),
+            (Agent::Copilot, ".copilot/mcp-config.json"),
+            (Agent::Goose, ".config/goose/config.yaml"),
         ] {
             assert!(!agent.supports_project_mcp_scope(), "{agent:?}");
             for scope in [McpScope::Project, McpScope::User] {
-                let path = agent.mcp_config_path(scope, project, home);
-                if !relocated_by_env(agent) {
-                    assert_eq!(path, PathBuf::from(expected), "{agent:?} {scope:?}");
-                } else {
-                    // Still the point of the test: both scopes agree.
-                    assert_eq!(
-                        path,
-                        agent.mcp_config_path(McpScope::User, project, home),
-                        "{agent:?} {scope:?}"
-                    );
-                }
+                assert_eq!(
+                    agent.mcp_config_path(scope, project, &sym),
+                    home.path().join(expected),
+                    "{agent:?} {scope:?}"
+                );
             }
         }
     }
@@ -1169,11 +1288,13 @@ mod tests {
     ///
     #[test]
     fn mcp_config_is_never_the_agents_own_hooks_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sym = Symposium::from_dir(tmp.path());
         let project = Path::new("/project");
-        let home = Path::new("/home/user");
+        let home = tmp.path();
         for &agent in Agent::all() {
             for (scope, root) in [(McpScope::Project, project), (McpScope::User, home)] {
-                let mcp = agent.mcp_config_path(scope, project, home);
+                let mcp = agent.mcp_config_path(scope, project, &sym);
                 for hooks in hook_paths_for(agent, root) {
                     assert_ne!(
                         mcp, hooks,
@@ -1516,9 +1637,10 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
+        let sym = Symposium::from_dir(root);
 
         Agent::Antigravity
-            .register_mcp_servers(McpScope::Project, root, root, &servers, &Output::quiet())
+            .register_mcp_servers(McpScope::Project, root, &sym, &servers, &Output::quiet())
             .unwrap();
         let project = root.join(".agents/mcp_config.json");
         assert!(
@@ -1530,7 +1652,7 @@ mod tests {
         assert!(cfg["mcpServers"]["symposium"].is_object());
 
         Agent::Antigravity
-            .register_mcp_servers(McpScope::User, root, root, &servers, &Output::quiet())
+            .register_mcp_servers(McpScope::User, root, &sym, &servers, &Output::quiet())
             .unwrap();
         assert!(
             root.join(".gemini/config/mcp_config.json").is_file(),

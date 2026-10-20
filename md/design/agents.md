@@ -61,7 +61,7 @@ Claude Code hooks live under the `"hooks"` key in settings JSON files. Each even
 
 | Scope | File |
 |-------|------|
-| Global | `~/.claude/settings.json` |
+| Global | `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` when set) |
 | Project (shared) | `.claude/settings.json` |
 | Project (personal) | `.claude/settings.local.json` |
 
@@ -127,7 +127,7 @@ Copilot hooks are defined in JSON files with a `version` field. Hook entries use
 
 | Scope | File |
 |-------|------|
-| Global | `~/.copilot/config.json` (under `hooks` key) |
+| Global | `~/.copilot/settings.json` (`$COPILOT_HOME/settings.json` when set), under the `hooks` key |
 | Project | `.github/hooks/*.json` |
 
 Example hook registration:
@@ -316,7 +316,7 @@ Codex CLI hooks live in `hooks.json` files. The structure is similar to Claude C
 
 | Scope | File |
 |-------|------|
-| Global | `~/.codex/hooks.json` |
+| Global | `~/.codex/hooks.json` (`$CODEX_HOME/hooks.json` when set) |
 | Project | `.codex/hooks.json` |
 
 Example hook registration:

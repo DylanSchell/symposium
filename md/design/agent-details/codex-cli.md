@@ -23,6 +23,14 @@ Codex runs a non-managed hook only after the user trusts that exact definition. 
 
 Both are **additive** — all matching hooks from all files run. Project hooks follow the untrusted-project trust model.
 
+`CODEX_HOME` moves the user level as a whole: when it is set, Codex reads
+`$CODEX_HOME/hooks.json` and `$CODEX_HOME/config.toml`, and ignores
+`~/.codex/hooks.json` and `~/.codex/config.toml`. Symposium writes its global
+hooks and MCP servers there too. Verified against Codex CLI 0.159.3 with the
+variable set: the TUI's hook review listed symposium's four hooks with
+`$CODEX_HOME/hooks.json` as their source, and `codex mcp list` showed its
+server.
+
 ### Configuration structure
 
 ```json
@@ -220,7 +228,7 @@ args = ["mcp"]
 ```
 
 - **Project-level**: `.codex/config.toml`
-- **User-level**: `~/.codex/config.toml`
+- **User-level**: `~/.codex/config.toml` (`$CODEX_HOME/config.toml` when set)
 
 Registration is idempotent — if the entry already exists with the
 correct values, no changes are made. If the entry exists but has stale

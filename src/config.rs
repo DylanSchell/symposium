@@ -417,7 +417,10 @@ pub struct Symposium {
     pub config: Config,
     dirs: crate::dirs::SymposiumDirs,
     home_dir: PathBuf,
+    env: EnvLookup,
 }
+
+type EnvLookup = Arc<dyn Fn(&str) -> Option<std::ffi::OsString> + Send + Sync>;
 
 impl Symposium {
     /// Production constructor: resolves paths from environment.
@@ -441,6 +444,7 @@ impl Symposium {
             config,
             dirs,
             home_dir,
+            env: Arc::new(|name| env::var_os(name)),
         }
     }
 
@@ -466,6 +470,7 @@ impl Symposium {
             config,
             dirs,
             home_dir,
+            env: Arc::new(|_| None),
         }
     }
 
@@ -537,6 +542,20 @@ impl Symposium {
     #[doc(hidden)]
     pub fn set_cargo_override(&mut self, path: PathBuf) {
         self.dirs.cargo_override = Some(path);
+    }
+
+    #[doc(hidden)]
+    pub fn set_env(
+        &mut self,
+        env: impl Fn(&str) -> Option<std::ffi::OsString> + Send + Sync + 'static,
+    ) {
+        self.env = Arc::new(env);
+    }
+
+    pub(crate) fn env_dir(&self, var: &str) -> Option<PathBuf> {
+        (self.env)(var)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
     }
 
     /// Initialize logging with an optional report layer. Call once at startup.
