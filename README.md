@@ -71,6 +71,7 @@ Which agents do you use? (space to select, enter to confirm):
   [ ] Goose
   [x] Kiro
   [x] OpenCode
+  [ ] Pi
 ```
 
 - **Global** hook scope (default) registers Symposium for the selected agents in your home directory, so it activates in every Rust project.
@@ -128,7 +129,7 @@ Configuration is a single user-wide file at `~/.symposium/config.toml`, created 
 
 ## Supported agents
 
-Every agent receives skill installation. Hook registration is available for a subset; OpenCode and Goose are skills-only.
+Every agent receives skill installation. Hook registration is available for a subset; OpenCode and Goose are skills-only. Pi has no hook config, so its hooks arrive through a small TypeScript extension that Symposium installs.
 
 | Agent | Skill directory | Hooks |
 |-------|-----------------|:-----:|
@@ -139,6 +140,9 @@ Every agent receives skill installation. Hook registration is available for a su
 | Kiro | `.kiro/skills/` | Yes |
 | OpenCode | `.agents/skills/` | No |
 | Goose | `.agents/skills/` | No |
+| Pi | `.agents/skills/` | Yes\* |
+
+\* Via `extensions/symposium.ts`, the extension Symposium writes — Pi reads no hook configuration file.
 
 ## For crate authors
 

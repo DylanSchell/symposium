@@ -25,8 +25,9 @@ Symposium registers one handler per event with each agent, under the agent's own
 | Kiro (`kiro`) | `preToolUse` | `postToolUse` | `userPromptSubmit` | `agentSpawn` | not delivered |
 | Goose | not delivered | not delivered | not delivered | not delivered | not delivered |
 | OpenCode | not delivered | not delivered | not delivered | not delivered | not delivered |
+| Pi (`pi`) | `tool_call` | `tool_result` | `before_agent_start` | `session_start` | `agent_end` |
 
-Goose and OpenCode have no shell hooks, so no plugin hook ever runs there; they receive skills and MCP servers only. A hook for an event an agent does not deliver simply never fires on that agent. Agents also differ in what they do with a hook's output; for example, Antigravity shows a `PreToolUse` hook's output only when the hook blocks the call. Each agent's page under [Supported agents](./supported-agents.md) has the details.
+Goose and OpenCode have no shell hooks, so no plugin hook ever runs there; they receive skills and MCP servers only. Pi has no shell hooks either: its events arrive through the extension symposium installs, which delivers them in Pi's own format (see [Pi](../design/agent-details/pi.md)). A hook for an event an agent does not deliver simply never fires on that agent. Agents also differ in what they do with a hook's output; for example, Antigravity shows a `PreToolUse` hook's output only when the hook blocks the call. Each agent's page under [Supported agents](./supported-agents.md) has the details.
 
 ## Input schemas
 

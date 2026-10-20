@@ -154,13 +154,13 @@ This row records whether a supported agent is configured for Symposium that day.
 
 | Field           | Values                                                              | Meaning                                                  |
 | --------------- | ------------------------------------------------------------------- | -------------------------------------------------------- |
-| `agent`         | `antigravity`, `claude`, `codex`, `copilot`, `kiro`, `opencode`, `goose` | Agent being checked.                                     |
+| `agent`         | `antigravity`, `claude`, `codex`, `copilot`, `kiro`, `opencode`, `goose`, `pi` | Agent being checked.                                     |
 | `configured`    | boolean                                                             | Whether the agent is listed in per-user Symposium configuration. |
 | `os`            | `linux`, `macos`, `windows`, `other`                                | OS class for the running Symposium build.                |
 | `arch`          | `x86_64`, `aarch64`, `other`                                        | Architecture class for the running build.                |
 | `agent_subject` | scoped id                                                           | Deduplicates one installation for this agent and window. |
 
-On the first non-telemetry recording-capable invocation each UTC day, Symposium attempts one whole batch containing all seven agents. `configured` means the agent is present in Symposium's per-user configuration at that moment; Symposium does not inspect agent-owned configuration files.
+On the first non-telemetry recording-capable invocation each UTC day, Symposium attempts one whole batch containing all eight agents. `configured` means the agent is present in Symposium's per-user configuration at that moment; Symposium does not inspect agent-owned configuration files.
 
 A successful batch is the day's snapshot, so later configuration changes appear on the next UTC day's snapshot. If locking, storage, or I/O drops the batch, it remains outstanding and a later eligible invocation retries it.
 

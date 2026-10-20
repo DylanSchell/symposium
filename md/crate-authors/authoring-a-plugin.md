@@ -174,7 +174,7 @@ See the [plugin definition reference](../reference/plugin-definition.md#installa
 
 Hooks run when the AI performs certain actions — invoking a tool, starting a session, or submitting a prompt. They receive JSON on stdin describing the event and can return guidance, inject context, or block the action.
 
-Every agent varies in the specifics of what hooks it offers and how those hooks are configured. Symposium allows you to provide agent-specific hook handlers, but we recommend instead using a *Symposium hook* handler, which is portable across agents. Hooks run on every [supported agent](../reference/supported-agents.md) except Goose and OpenCode, which have no shell hooks Symposium can register (they still receive skills and MCP servers).
+Every agent varies in the specifics of what hooks it offers and how those hooks are configured. Symposium allows you to provide agent-specific hook handlers, but we recommend instead using a *Symposium hook* handler, which is portable across agents. Hooks run on every [supported agent](../reference/supported-agents.md) except Goose and OpenCode, which have no hooks Symposium can register (they still receive skills and MCP servers). Pi has no hook configuration file, so its hooks arrive through the TypeScript extension Symposium installs there.
 
 #### Symposium hooks (portable across agents)
 

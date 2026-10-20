@@ -25,6 +25,7 @@ The tables below summarize the answers for each agent. Individual agent pages co
 | [Kiro](./kiro.md) | `.kiro/agents/*.json` | `~/.kiro/agents/*.json` | JSON, `hooks` key in agent config |
 | [OpenCode](./opencode.md) | `.opencode/plugins/` | `~/.config/opencode/plugins/` | JS/TS plugins (not shell hooks) |
 | [Goose](./goose.md) | *(no hooks)* | *(no hooks)* | N/A |
+| [Pi](./pi.md) | `.pi/extensions/symposium.ts` | `~/.pi/agent/extensions/symposium.ts` | TypeScript extension symposium writes; it spawns `cargo-agents hook pi` |
 
 ### Command field
 
@@ -37,6 +38,7 @@ The tables below summarize the answers for each agent. Individual agent pages co
 | Kiro | `command` | No |
 | OpenCode | N/A (JS function) | N/A |
 | Goose | N/A | N/A |
+| Pi | `command` inside the installed extension | No |
 
 ### Timeout defaults
 
@@ -49,18 +51,19 @@ The tables below summarize the answers for each agent. Individual agent pages co
 | Kiro | 30,000 | milliseconds (`timeout_ms`) |
 | OpenCode | 60,000 | milliseconds (community hooks plugin) |
 | Goose | N/A | N/A |
+| Pi | 10 (60 on session-start) | seconds, enforced by the installed extension |
 
 ## Event names
 
-Symposium registers hooks for four events on every agent with shell hooks, plus `stop` on Antigravity and Claude Code. Each agent uses different names and casing conventions; *not registered* marks an event the agent has but symposium does not hook.
+Symposium registers hooks for four events on every agent with shell hooks, plus `stop` on Antigravity, Claude Code, and Pi. Each agent uses different names and casing conventions; *not registered* marks an event the agent has but symposium does not hook.
 
-| Symposium event | Antigravity CLI | Claude Code | Copilot | Codex CLI | Kiro CLI | OpenCode | Goose |
-|---|---|---|---|---|---|---|---|
-| pre-tool-use | `PreToolUse` | `PreToolUse` | `preToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | N/A |
-| post-tool-use | `PostToolUse` | `PostToolUse` | `postToolUse` | `PostToolUse` | `postToolUse` | `tool.execute.after` | N/A |
-| user-prompt-submit | `PreInvocation` | `UserPromptSubmit` | `userPromptSubmitted` | `UserPromptSubmit` | `userPromptSubmit` | `message.updated` (filter by role) | N/A |
-| session-start | `SessionStart` | `SessionStart` | `sessionStart` | `SessionStart` | `agentSpawn` | `session.created` | N/A |
-| stop | `Stop` | `Stop` | *not registered* (`agentStop`) | *not registered* (`Stop`) | *not registered* (`stop`) | N/A | N/A |
+| Symposium event | Antigravity CLI | Claude Code | Copilot | Codex CLI | Kiro CLI | OpenCode | Goose | Pi |
+|---|---|---|---|---|---|---|---|---|
+| pre-tool-use | `PreToolUse` | `PreToolUse` | `preToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | N/A | `tool_call` |
+| post-tool-use | `PostToolUse` | `PostToolUse` | `postToolUse` | `PostToolUse` | `postToolUse` | `tool.execute.after` | N/A | `tool_result` |
+| user-prompt-submit | `PreInvocation` | `UserPromptSubmit` | `userPromptSubmitted` | `UserPromptSubmit` | `userPromptSubmit` | `message.updated` (filter by role) | N/A | `before_agent_start` (filter by `messageType`) |
+| session-start | `SessionStart` | `SessionStart` | `sessionStart` | `SessionStart` | `agentSpawn` | `session.created` | N/A | `session_start` (skip `reason: "reload"`) |
+| stop | `Stop` | `Stop` | *not registered* (`agentStop`) | *not registered* (`Stop`) | *not registered* (`stop`) | N/A | N/A | `agent_end` |
 
 ### Blocking support
 
@@ -75,6 +78,7 @@ Not all events can block the action in all agents.
 | Kiro | Yes (exit 2) | No | No | No |
 | OpenCode | Yes (throw Error) | No | No (observe only) | No (observe only) |
 | Goose | N/A | N/A | N/A | N/A |
+| Pi | Yes (`block: true`) | No (may rewrite result) | No (may add a message) | No (observe only; its context injects on the first run) |
 
 ## Hook I/O protocol
 
@@ -89,6 +93,7 @@ Not all events can block the action in all agents.
 | Kiro | `tool_name` | `tool_input` (object) | `hook_event_name`, `cwd` |
 | OpenCode | `tool` | `args` (mutable output object) | `sessionID`, `callID` |
 | Goose | N/A | N/A | N/A |
+| Pi | `toolName` | `input` (mutate in place) | `toolCallId`, `parentToolCallId` |
 
 ### Output structure (pre-tool-use)
 
@@ -100,7 +105,8 @@ Not all events can block the action in all agents.
 | Codex CLI | `decision` or `permissionDecision` | block/deny | *(not yet implemented)* | flat or nested `hookSpecificOutput` |
 | Kiro | *(exit code only)* | exit 0 = allow, exit 2 = block | *(not supported)* | N/A |
 | OpenCode | *(throw to block)* | allow (return) / deny (throw) | mutate `output.args` | JS mutation |
-| Goose | N/A | N/A | N/A | N/A |
+| Goose | N/A | N/A | N/A |
+| Pi | `block` (+ `reason`) | block (`true`) / allow (omit) | `updatedInput`, applied to `event.input` | JS return value |
 
 ### Exit codes
 
@@ -127,8 +133,9 @@ All shell-based agents use the same convention (where applicable):
 | Kiro | `.kiro/skills/<name>/SKILL.md` | `~/.kiro/skills/<name>/SKILL.md` |
 | OpenCode | `.agents/skills/<name>/SKILL.md` | `~/.agents/skills/<name>/SKILL.md` |
 | Goose | *(N/A — uses MCP extensions)* | *(N/A)* |
+| Pi | `.agents/skills/<name>/SKILL.md` | `~/.agents/skills/<name>/SKILL.md` |
 
-Symposium uses the vendor-neutral `.agents/skills/` path whenever the agent supports it, falling back to agent-specific paths (e.g., `.claude/skills/`, `.kiro/skills/`) when required. Codex CLI and OpenCode also support `.agents/skills/` natively.
+Symposium uses the vendor-neutral `.agents/skills/` path whenever the agent supports it, falling back to agent-specific paths (e.g., `.claude/skills/`, `.kiro/skills/`) when required. Codex CLI, OpenCode and Pi also support `.agents/skills/` natively. Pi additionally reads `.pi/skills/` and `<agent-dir>/skills/`; symposium stays on the shared paths so one directory serves both.
 
 ### Custom instructions
 
@@ -141,6 +148,7 @@ Symposium uses the vendor-neutral `.agents/skills/` path whenever the agent supp
 | Kiro | `.kiro/steering/*.md`, `AGENTS.md` | `~/.kiro/steering/*.md` |
 | OpenCode | `AGENTS.md`, `CLAUDE.md` | `~/.config/opencode/AGENTS.md` |
 | Goose | `.goosehints`, `AGENTS.md` | `~/.config/goose/.goosehints` |
+| Pi | `AGENTS.md`, `CLAUDE.md` | `~/.pi/agent/AGENTS.md` |
 
 ## MCP server configuration
 
@@ -162,6 +170,7 @@ symposium reports success for a file the agent never reads.
 | GitHub Copilot CLI | *(none - user scope only)* | `~/.copilot/mcp-config.json` | `mcpServers.<name>` = `{command, args}` | yes |
 | Kiro | `.kiro/settings/mcp.json` | `~/.kiro/settings/mcp.json` | `mcpServers.<name>` = `{command, args}` | no (GUI only) |
 | Goose | *(none - user scope only)* | `~/.config/goose/config.yaml` | `extensions.<name>` = `{name, type: stdio, cmd, args, enabled, envs}` | yes |
+| Pi | `<project>/.pi/mcp.json` | `~/.pi/agent/mcp.json` | `mcpServers.<name>` = `{command, args}` | yes (`pi mcp add`) |
 
 Notes that cost real debugging time:
 
@@ -182,6 +191,10 @@ Notes that cost real debugging time:
 - Goose uses `cmd`, not `command`, and requires a `type`; the nested
   `provider: mcp` / `config:` form it once got is rejected outright. Remote is
   `type: streamable_http` with `uri` - Goose has no `sse` variant.
+- Pi keeps its user-level MCP file in its *agent directory*, which `PI_CODING_AGENT_DIR`
+  relocates (`~/.pi/agent` by default) - registration follows the variable, or the entry
+  lands where Pi never looks. Its project file, `.pi/mcp.json`, is read only after the
+  user grants that project trust, so a project-scoped entry sits inert until then.
 - `env`/`headers` must be **maps**. ACP models them as `[{name, value}]` pairs,
   and a list is skipped or rejected - silently, for an entry that differs from a
   working one only by carrying env. Codex takes env as a TOML table, Goose as
