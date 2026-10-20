@@ -750,6 +750,22 @@ pub(super) fn unregister_opencode_mcp_servers(
     unregister_json_mcp_servers(path, names, Some("mcp"), out)
 }
 
+/// Pi: `mcpServers.<name>` in `mcp.json` (the agent directory, or `.pi/` in a
+/// project). Pi documents its format as matching "other MCP clients", so the
+/// shared `{command, args}` serializer applies; `pi mcp add` writes exactly this
+/// shape.
+pub(super) fn register_pi_mcp_servers(
+    path: &Path,
+    servers: &[McpServer],
+    out: &Output,
+) -> Result<()> {
+    register_json_mcp_servers(path, servers, Some("mcpServers"), out)
+}
+
+pub(super) fn unregister_pi_mcp_servers(path: &Path, names: &[&str], out: &Output) -> Result<()> {
+    unregister_json_mcp_servers(path, names, Some("mcpServers"), out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1362,5 +1378,62 @@ mod tests {
         let config: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert!(config["mcp"].get("symposium").is_none());
+    }
+
+    // -- Pi MCP (shared `mcpServers` shape; the risk is the file it shares it with) --
+
+    /// `~/.pi/agent/mcp.json` is where a Pi user keeps their own servers, so
+    /// registration must add and reap one entry rather than rewrite the file.
+    #[test]
+    fn register_pi_leaves_the_users_own_servers_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("mcp.json");
+        save_json(
+            &path,
+            &json!({"mcpServers": {"kagi": {"command": "/opt/homebrew/bin/uv", "args": ["run", "kagimcp"]}}}),
+        )
+        .unwrap();
+
+        register_pi_mcp_servers(&path, &test_servers(), &Output::quiet()).unwrap();
+
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            config["mcpServers"]["symposium"]["command"],
+            "/usr/local/bin/cargo-agents"
+        );
+        assert_eq!(config["mcpServers"]["kagi"]["args"][1], "kagimcp");
+
+        unregister_pi_mcp_servers(&path, &test_server_names(), &Output::quiet()).unwrap();
+
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(config["mcpServers"].get("symposium").is_none());
+        assert!(
+            config["mcpServers"]["kagi"].is_object(),
+            "the user's own server survives"
+        );
+    }
+
+    #[test]
+    fn register_pi_idempotent_and_updates_stale() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("mcp.json");
+        save_json(
+            &path,
+            &json!({"mcpServers": {"symposium": {"command": "/old/path", "args": ["mcp"]}}}),
+        )
+        .unwrap();
+
+        register_pi_mcp_servers(&path, &test_servers(), &Output::quiet()).unwrap();
+        register_pi_mcp_servers(&path, &test_servers(), &Output::quiet()).unwrap();
+
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(config["mcpServers"].as_object().unwrap().len(), 1);
+        assert_eq!(
+            config["mcpServers"]["symposium"]["command"],
+            "/usr/local/bin/cargo-agents"
+        );
     }
 }

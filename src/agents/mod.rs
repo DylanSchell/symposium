@@ -38,6 +38,7 @@ pub enum Agent {
     Goose,
     Kiro,
     OpenCode,
+    Pi,
 }
 
 impl Agent {
@@ -51,8 +52,9 @@ impl Agent {
             "goose" => Ok(Agent::Goose),
             "kiro" => Ok(Agent::Kiro),
             "opencode" => Ok(Agent::OpenCode),
+            "pi" => Ok(Agent::Pi),
             other => bail!(
-                "unknown agent: {other} (expected antigravity, claude, codex, copilot, goose, kiro, or opencode)"
+                "unknown agent: {other} (expected antigravity, claude, codex, copilot, goose, kiro, opencode, or pi)"
             ),
         }
     }
@@ -67,6 +69,7 @@ impl Agent {
             Agent::Goose => "goose",
             Agent::Kiro => "kiro",
             Agent::OpenCode => "opencode",
+            Agent::Pi => "pi",
         }
     }
 
@@ -80,6 +83,7 @@ impl Agent {
             Agent::Goose => "Goose",
             Agent::Kiro => "Kiro",
             Agent::OpenCode => "OpenCode",
+            Agent::Pi => "Pi",
         }
     }
 
@@ -93,6 +97,7 @@ impl Agent {
             Agent::Goose,
             Agent::Kiro,
             Agent::OpenCode,
+            Agent::Pi,
         ]
     }
 
@@ -102,9 +107,9 @@ impl Agent {
 
     /// Project-level skill directory for a given skill name.
     ///
-    /// Claude Code requires `.claude/skills/`, while Antigravity, Copilot and
-    /// Antigravity, Codex and Copilot support the vendor-neutral
-    /// `.agents/skills/` path.
+    /// Claude Code requires `.claude/skills/` and Kiro `.kiro/skills/`, while
+    /// Antigravity, Codex, Copilot, Goose, OpenCode and Pi support the
+    /// vendor-neutral `.agents/skills/` path.
     pub fn project_skill_dir(&self, project_root: &Path, skill_name: &str) -> PathBuf {
         assert!(
             crate::skills::is_safe_dir_name(skill_name),
@@ -118,6 +123,7 @@ impl Agent {
             Agent::Goose => project_root.join(".agents").join("skills").join(skill_name),
             Agent::Kiro => project_root.join(".kiro").join("skills").join(skill_name),
             Agent::OpenCode => project_root.join(".agents").join("skills").join(skill_name),
+            Agent::Pi => project_root.join(".agents").join("skills").join(skill_name),
         }
     }
 
@@ -142,6 +148,10 @@ impl Agent {
             Agent::Goose => Some(home.join(".agents").join("skills").join(skill_name)),
             Agent::Kiro => Some(home.join(".kiro").join("skills").join(skill_name)),
             Agent::OpenCode => Some(home.join(".agents").join("skills").join(skill_name)),
+            // Pi reads the vendor-neutral `~/.agents/skills/` alongside its own
+            // `<agent-dir>/skills/`, so no install lands in a directory the user
+            // would have to know to look in.
+            Agent::Pi => Some(home.join(".agents").join("skills").join(skill_name)),
         }
     }
 
@@ -176,6 +186,12 @@ impl Agent {
                 );
                 Ok(())
             }
+            Agent::Pi => {
+                register_pi_extension(&pi_project_extensions_dir(project_root), out)?;
+                // Not a warning: the file is correct, and trust is the user's call.
+                out.info("Pi loads .pi/extensions only after you trust this project");
+                Ok(())
+            }
             Agent::OpenCode => {
                 out.info("OpenCode uses JS/TS plugins for hooks; skipping hook registration (skills only)");
                 Ok(())
@@ -208,6 +224,7 @@ impl Agent {
                 );
                 Ok(())
             }
+            Agent::Pi => register_pi_extension(&pi_user_extensions_dir(sym), out),
             Agent::OpenCode => {
                 out.info("OpenCode uses JS/TS plugins for hooks; skipping hook registration (skills only)");
                 Ok(())
@@ -266,6 +283,13 @@ impl Agent {
             }
             (Agent::Kiro, McpScope::User) => home.join(".kiro").join("settings").join("mcp.json"),
 
+            // Pi's user config directory is its "agent directory", which the
+            // `PI_CODING_AGENT_DIR` env var relocates (`~/.pi/agent` by default).
+            // Its project file is `.pi/mcp.json`, read only once the project is
+            // trusted.
+            (Agent::Pi, McpScope::Project) => project_root.join(".pi").join("mcp.json"),
+            (Agent::Pi, McpScope::User) => pi_agent_dir(sym).join("mcp.json"),
+
             // No project-level MCP config exists for these: the CLI reads the
             // user-level file only (Codex and Copilot verified by asking them
             // from a project holding an entry: both reported none). Project
@@ -287,7 +311,7 @@ impl Agent {
     pub fn supports_project_mcp_scope(&self) -> bool {
         matches!(
             self,
-            Agent::Antigravity | Agent::Claude | Agent::OpenCode | Agent::Kiro
+            Agent::Antigravity | Agent::Claude | Agent::OpenCode | Agent::Kiro | Agent::Pi
         )
     }
 
@@ -322,6 +346,7 @@ impl Agent {
             Agent::OpenCode => {
                 mcp_server_registration::register_opencode_mcp_servers(&path, servers, out)
             }
+            Agent::Pi => mcp_server_registration::register_pi_mcp_servers(&path, servers, out),
         }
     }
 
@@ -355,6 +380,7 @@ impl Agent {
             Agent::OpenCode => {
                 mcp_server_registration::unregister_opencode_mcp_servers(&path, names, out)
             }
+            Agent::Pi => mcp_server_registration::unregister_pi_mcp_servers(&path, names, out),
         }
     }
 
@@ -374,6 +400,7 @@ impl Agent {
                 unregister_copilot_hooks(&project_root.join(".github").join("hooks"), out)
             }
             Agent::Kiro => unregister_kiro_hooks(&project_root.join(".kiro").join("agents"), out),
+            Agent::Pi => unregister_pi_extension(&pi_project_extensions_dir(project_root), out),
             Agent::Goose => {}    // no hooks to unregister
             Agent::OpenCode => {} // no hooks to unregister
         }
@@ -394,6 +421,7 @@ impl Agent {
                 unregister_copilot_hooks_global(&copilot_config_dir(sym).join("settings.json"), out)
             }
             Agent::Kiro => unregister_kiro_hooks(&home.join(".kiro").join("agents"), out),
+            Agent::Pi => unregister_pi_extension(&pi_user_extensions_dir(sym), out),
             Agent::Goose => {}    // no hooks to unregister
             Agent::OpenCode => {} // no hooks to unregister
         }
@@ -872,6 +900,88 @@ fn unregister_kiro_hooks(agents_dir: &Path, out: &Output) {
 }
 
 // ---------------------------------------------------------------------------
+// Pi hook registration (a TypeScript extension, not a hook config)
+// ---------------------------------------------------------------------------
+
+/// Pi's agent directory: `PI_CODING_AGENT_DIR` when set, else `~/.pi/agent`.
+///
+/// Both of Pi's symposium-owned files live under it — `mcp.json` and
+/// `extensions/` — so the env var is honored in one place.
+fn pi_agent_dir(sym: &Symposium) -> PathBuf {
+    sym.env_dir("PI_CODING_AGENT_DIR")
+        .unwrap_or_else(|| sym.home_dir().join(".pi").join("agent"))
+}
+
+/// Where Pi looks for project hooks.
+fn pi_project_extensions_dir(project_root: &Path) -> PathBuf {
+    project_root.join(".pi").join("extensions")
+}
+
+/// Where Pi looks for hooks in every project.
+fn pi_user_extensions_dir(sym: &Symposium) -> PathBuf {
+    pi_agent_dir(sym).join("extensions")
+}
+
+/// The bridge symposium installs into Pi's extensions directory. Embedded so the
+/// installed file always matches the binary that wrote it, and so a sync needs no
+/// network or data directory.
+const PI_EXTENSION: &str = include_str!("assets/pi-extension.ts");
+
+/// First line of [`PI_EXTENSION`], and the only thing marking a file as
+/// symposium's to overwrite and to delete. A hand-written `symposium.ts` in the
+/// same directory is left alone.
+const PI_EXTENSION_MARKER: &str = "// symposium:managed";
+
+const PI_EXTENSION_FILE: &str = "symposium.ts";
+
+/// Install (or refresh) the Pi extension in `extensions_dir`.
+///
+/// Unlike every other agent, Pi's hook registration is a program rather than a
+/// config entry, so there is nothing to merge with a user's own hooks: Pi reads
+/// every file in the directory, and symposium owns exactly one of them.
+fn register_pi_extension(extensions_dir: &Path, out: &Output) -> Result<()> {
+    let path = extensions_dir.join(PI_EXTENSION_FILE);
+    let display = display_path(&path);
+
+    if path.exists() {
+        let existing = fs::read_to_string(&path)?;
+        if !existing.contains(PI_EXTENSION_MARKER) {
+            out.warn(format!(
+                "{display}: user-authored extension in place; symposium hooks not installed"
+            ));
+            return Ok(());
+        }
+        if existing == PI_EXTENSION {
+            out.already_ok(format!("{display}: hooks already registered"));
+            return Ok(());
+        }
+        fs::write(&path, PI_EXTENSION)?;
+        out.done(format!("{display}: updated hooks"));
+        return Ok(());
+    }
+
+    fs::create_dir_all(extensions_dir)?;
+    fs::write(&path, PI_EXTENSION)?;
+    out.done(format!("{display}: added hooks"));
+    Ok(())
+}
+
+/// Remove symposium's extension, and only symposium's.
+fn unregister_pi_extension(extensions_dir: &Path, out: &Output) {
+    let path = extensions_dir.join(PI_EXTENSION_FILE);
+    let Ok(existing) = fs::read_to_string(&path) else {
+        return;
+    };
+    if !existing.contains(PI_EXTENSION_MARKER) {
+        return;
+    }
+    let display = display_path(&path);
+    if fs::remove_file(&path).is_ok() {
+        out.removed(format!("{display}: removed hooks"));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Hook unregistration
 // ---------------------------------------------------------------------------
 
@@ -1088,6 +1198,7 @@ mod tests {
                 "/project/.kiro/settings/mcp.json",
                 ".kiro/settings/mcp.json",
             ),
+            (Agent::Pi, "/project/.pi/mcp.json", ".pi/agent/mcp.json"),
         ];
         for (agent, project_path, user_path) in cases {
             assert_eq!(
@@ -1316,6 +1427,8 @@ mod tests {
                 root.join(".gemini").join("config").join("hooks.json"),
             ],
             Agent::Kiro => vec![root.join(".kiro").join("agents")],
+            // Pi's hooks are a TypeScript extension, not a config entry.
+            Agent::Pi => vec![root.join(".pi").join("extensions")],
             // Skills-only agents register no hooks at all.
             Agent::Goose | Agent::OpenCode => vec![],
         }
@@ -1675,6 +1788,221 @@ mod tests {
         assert_eq!(
             Agent::from_config_name("antigravity").unwrap(),
             Agent::Antigravity
+        );
+    }
+
+    // ── Pi ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn agent_from_config_name_pi() {
+        assert_eq!(Agent::from_config_name("pi").unwrap(), Agent::Pi);
+        assert_eq!(Agent::Pi.display_name(), "Pi");
+    }
+
+    /// Pi reads the Agent Skills locations, so it needs no directory of its own
+    /// for skills; only its MCP config is Pi-specific.
+    #[test]
+    fn pi_skill_dirs() {
+        let root = Path::new("/project");
+        let home = Path::new("/home/user");
+        assert_eq!(
+            Agent::Pi.project_skill_dir(root, "tokio"),
+            PathBuf::from("/project/.agents/skills/tokio")
+        );
+        assert_eq!(
+            Agent::Pi.global_skill_dir(home, "tokio"),
+            Some(PathBuf::from("/home/user/.agents/skills/tokio"))
+        );
+    }
+
+    /// Relocation is set through `Symposium`'s env accessor, not the real
+    /// process environment: a test that read the ambient var would fail on a
+    /// machine where the user moved their agent directory.
+    #[test]
+    fn pi_user_mcp_path_follows_pi_coding_agent_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sym = Symposium::from_dir(tmp.path());
+        assert_eq!(
+            Agent::Pi.mcp_config_path(McpScope::User, Path::new("/project"), &sym),
+            tmp.path().join(".pi/agent/mcp.json"),
+            "default agent directory"
+        );
+
+        let relocated = tmp.path().join("moved-agent-dir");
+        let mut sym = Symposium::from_dir(tmp.path());
+        let env_value = relocated.clone();
+        sym.set_env(move |name| {
+            (name == "PI_CODING_AGENT_DIR").then(|| env_value.clone().into_os_string())
+        });
+        assert_eq!(
+            Agent::Pi.mcp_config_path(McpScope::User, Path::new("/project"), &sym),
+            relocated.join("mcp.json"),
+            "PI_CODING_AGENT_DIR relocates it"
+        );
+    }
+
+    /// Pi has no hook config to merge into, so registration writes the whole
+    /// bridge and must land in the directory Pi scans for extensions.
+    #[test]
+    fn pi_extension_targets_the_directories_pi_scans() {
+        assert_eq!(
+            pi_project_extensions_dir(Path::new("/project")),
+            PathBuf::from("/project/.pi/extensions")
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let sym = Symposium::from_dir(tmp.path());
+        assert_eq!(
+            pi_user_extensions_dir(&sym),
+            tmp.path().join(".pi/agent/extensions"),
+            "default agent directory"
+        );
+
+        let relocated = tmp.path().join("moved-agent-dir");
+        let mut sym = Symposium::from_dir(tmp.path());
+        let env_value = relocated.clone();
+        sym.set_env(move |name| {
+            (name == "PI_CODING_AGENT_DIR").then(|| env_value.clone().into_os_string())
+        });
+        assert_eq!(
+            pi_user_extensions_dir(&sym),
+            relocated.join("extensions"),
+            "PI_CODING_AGENT_DIR relocates it"
+        );
+    }
+
+    #[test]
+    fn register_pi_extension_writes_the_whole_bridge() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("extensions");
+
+        register_pi_extension(&dir, &Output::quiet()).unwrap();
+
+        let path = dir.join(PI_EXTENSION_FILE);
+        assert!(path.is_file(), "the directory is created on demand");
+        let installed = fs::read_to_string(&path).unwrap();
+        assert_eq!(installed, PI_EXTENSION);
+        assert!(
+            installed.starts_with(PI_EXTENSION_MARKER),
+            "the marker is the first line, so ownership survives a formatter"
+        );
+        // A bridge that dropped an event would silently stop guiding the agent.
+        for event in [
+            "\"session_start\"",
+            "\"before_agent_start\"",
+            "\"tool_call\"",
+            "\"tool_result\"",
+            "\"agent_end\"",
+        ] {
+            assert!(installed.contains(event), "missing handler for {event}");
+        }
+        for event in [
+            "session-start",
+            "user-prompt-submit",
+            "pre-tool-use",
+            "post-tool-use",
+            "stop",
+        ] {
+            assert!(
+                installed.contains(&format!("\"{event}\"")),
+                "missing {event}"
+            );
+        }
+    }
+
+    /// Registration runs on every sync; a rewrite each time would churn the file
+    /// and its mtime for no reason.
+    #[test]
+    fn register_pi_extension_is_idempotent_and_upgrades_itself() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("extensions");
+        register_pi_extension(&dir, &Output::quiet()).unwrap();
+        let first = fs::metadata(dir.join(PI_EXTENSION_FILE))
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        register_pi_extension(&dir, &Output::quiet()).unwrap();
+        let second = fs::metadata(dir.join(PI_EXTENSION_FILE))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(first, second, "an up-to-date extension is left untouched");
+
+        // What an older symposium wrote: managed, but stale.
+        let path = dir.join(PI_EXTENSION_FILE);
+        let stale = format!("{PI_EXTENSION_MARKER}\n// older build\n");
+        fs::write(&path, &stale).unwrap();
+        register_pi_extension(&dir, &Output::quiet()).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), PI_EXTENSION);
+    }
+
+    /// A user's own `symposium.ts` is theirs: never overwritten, never deleted.
+    #[test]
+    fn register_pi_extension_leaves_a_user_authored_file_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("extensions");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(PI_EXTENSION_FILE);
+        let handwritten = "export default function () { /* mine */ }\n";
+        fs::write(&path, handwritten).unwrap();
+
+        register_pi_extension(&dir, &Output::quiet()).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), handwritten);
+
+        unregister_pi_extension(&dir, &Output::quiet());
+        assert!(
+            path.exists(),
+            "unregister does not delete what it does not own"
+        );
+    }
+
+    #[test]
+    fn unregister_pi_extension_removes_only_symposiums_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("extensions");
+        register_pi_extension(&dir, &Output::quiet()).unwrap();
+        let other = dir.join("my-tool.ts");
+        fs::write(&other, "export default function () {}\n").unwrap();
+
+        unregister_pi_extension(&dir, &Output::quiet());
+
+        assert!(!dir.join(PI_EXTENSION_FILE).exists());
+        assert!(other.exists(), "the user's other extensions survive");
+    }
+
+    /// Both paths were confirmed with `pi mcp add` (with and without `--local`),
+    /// which is the only way to tell a file Pi reads from one it ignores.
+    #[test]
+    fn pi_mcp_lands_in_its_own_file_at_both_scopes() {
+        use sacp::schema::{McpServer, McpServerStdio};
+        let servers = vec![McpServer::Stdio(McpServerStdio::new(
+            "symposium",
+            "/usr/local/bin/cargo-agents",
+        ))];
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let sym = Symposium::from_dir(&root.join("home"));
+
+        Agent::Pi
+            .register_mcp_servers(McpScope::Project, root, &sym, &servers, &Output::quiet())
+            .unwrap();
+        let project = root.join(".pi/mcp.json");
+        assert!(project.is_file(), "project MCP goes to .pi/mcp.json");
+        let cfg: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&project).unwrap()).unwrap();
+        assert_eq!(
+            cfg["mcpServers"]["symposium"]["command"],
+            "/usr/local/bin/cargo-agents"
+        );
+
+        Agent::Pi
+            .register_mcp_servers(McpScope::User, root, &sym, &servers, &Output::quiet())
+            .unwrap();
+        assert!(
+            root.join("home/.pi/agent/mcp.json").is_file(),
+            "user MCP goes to the agent directory"
         );
     }
 }
